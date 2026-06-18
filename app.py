@@ -1,5 +1,187 @@
+import streamlit as st
+import pandas as pd
+import os
+
 # ==========================================
-# TRADING PAGE
+# APP CONFIG
+# ==========================================
+
+st.set_page_config(
+    page_title="Andrew Capital Management",
+    layout="wide"
+)
+
+FILE_NAME = "trades.csv"
+
+# ==========================================
+# CREATE FILE IF NEEDED
+# ==========================================
+
+if not os.path.exists(FILE_NAME):
+    df = pd.DataFrame(columns=[
+        "Date",
+        "Ticker",
+        "Direction",
+        "Setup",
+        "Entry",
+        "Stop",
+        "Target",
+        "Exit",
+        "Shares",
+        "Profit",
+        "RR",
+        "Notes"
+    ])
+    df.to_csv(FILE_NAME, index=False)
+
+# ==========================================
+# SIDEBAR
+# ==========================================
+
+st.sidebar.title("Andrew Capital Management")
+
+page = st.sidebar.selectbox(
+    "Navigation",
+    [
+        "Dashboard",
+        "Trading",
+        "Wealth",
+        "Real Estate",
+        "Acquisitions"
+    ]
+)
+
+# ==========================================
+# DASHBOARD
+# ==========================================
+
+if page == "Dashboard":
+
+    st.title("Executive Dashboard")
+
+    trades = pd.read_csv(FILE_NAME)
+
+    if len(trades) > 0:
+
+        total_trades = len(trades)
+
+        total_profit = trades["Profit"].sum()
+
+        winners = trades[
+            trades["Profit"] > 0
+        ]
+
+        losers = trades[
+            trades["Profit"] <= 0
+        ]
+
+        win_rate = (
+            len(winners)
+            / total_trades
+        ) * 100
+
+        avg_rr = trades["RR"].mean()
+
+        # Top KPI Row
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric(
+            "Trades",
+            total_trades
+        )
+
+        col2.metric(
+            "Profit",
+            f"${total_profit:.2f}"
+        )
+
+        col3.metric(
+            "Win Rate",
+            f"{win_rate:.1f}%"
+        )
+
+        col4.metric(
+            "Average RR",
+            f"{avg_rr:.2f}"
+        )
+
+        st.divider()
+
+        # Performance Row
+
+        best_trade = trades[
+            "Profit"
+        ].max()
+
+        worst_trade = trades[
+            "Profit"
+        ].min()
+
+        avg_winner = (
+            winners["Profit"].mean()
+            if len(winners) > 0
+            else 0
+        )
+
+        avg_loser = (
+            losers["Profit"].mean()
+            if len(losers) > 0
+            else 0
+        )
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric(
+            "Best Trade",
+            f"${best_trade:.2f}"
+        )
+
+        col2.metric(
+            "Worst Trade",
+            f"${worst_trade:.2f}"
+        )
+
+        col3.metric(
+            "Avg Winner",
+            f"${avg_winner:.2f}"
+        )
+
+        col4.metric(
+            "Avg Loser",
+            f"${avg_loser:.2f}"
+        )
+
+        st.divider()
+
+        st.subheader("Equity Curve")
+
+        equity_curve = trades[
+            "Profit"
+        ].cumsum()
+
+        st.line_chart(
+            equity_curve
+        )
+
+        st.divider()
+
+        st.subheader("Recent Trades")
+
+        recent = trades.tail(5)
+
+        st.dataframe(
+            recent,
+            use_container_width=True
+        )
+
+    else:
+
+        st.info(
+            "No trades entered yet."
+        )
+# ==========================================
+# TRADING
 # ==========================================
 
 if page == "Trading":
@@ -78,12 +260,16 @@ if page == "Trading":
         )
 
         notes = st.text_area(
-            "Trade Notes"
+            "Notes"
         )
 
-        risk = abs(entry - stop_loss)
+        risk = abs(
+            entry - stop_loss
+        )
 
-        reward = abs(target - entry)
+        reward = abs(
+            target - entry
+        )
 
         rr_ratio = 0
 
@@ -115,18 +301,12 @@ if page == "Trading":
                 "Notes": notes
             }])
 
-            if len(trades) > 0:
+            trades = pd.concat(
+                [trades, new_trade],
+                ignore_index=True
+            )
 
-                updated = pd.concat(
-                    [trades, new_trade],
-                    ignore_index=True
-                )
-
-            else:
-
-                updated = new_trade
-
-            updated.to_csv(
+            trades.to_csv(
                 FILE_NAME,
                 index=False
             )
@@ -135,13 +315,17 @@ if page == "Trading":
                 "Trade Saved!"
             )
 
+            st.rerun()
+
     # ======================================
     # ANALYTICS
     # ======================================
 
     with tab2:
 
-        st.subheader("Trading Analytics")
+        st.subheader(
+            "Trading Analytics"
+        )
 
         if len(trades) > 0:
 
@@ -151,22 +335,33 @@ if page == "Trading":
                 "Profit"
             ].sum()
 
-            winning_trades = len(
-                trades[
-                    trades["Profit"] > 0
-                ]
-            )
+            winners = trades[
+                trades["Profit"] > 0
+            ]
+
+            losers = trades[
+                trades["Profit"] <= 0
+            ]
 
             win_rate = (
-                winning_trades /
-                total_trades
+                len(winners)
+                / total_trades
             ) * 100
 
-            average_profit = trades[
-                "Profit"
-            ].mean()
+            avg_winner = 0
+            avg_loser = 0
 
-            col1, col2, col3, col4 = st.columns(4)
+            if len(winners) > 0:
+                avg_winner = winners[
+                    "Profit"
+                ].mean()
+
+            if len(losers) > 0:
+                avg_loser = losers[
+                    "Profit"
+                ].mean()
+
+            col1, col2, col3, col4, col5 = st.columns(5)
 
             col1.metric(
                 "Trades",
@@ -184,8 +379,31 @@ if page == "Trading":
             )
 
             col4.metric(
-                "Avg Profit",
-                f"${average_profit:.2f}"
+                "Avg Winner",
+                f"${avg_winner:.2f}"
+            )
+
+            col5.metric(
+                "Avg Loser",
+                f"${avg_loser:.2f}"
+            )
+
+            st.subheader(
+                "Equity Curve"
+            )
+
+            equity_curve = trades[
+                "Profit"
+            ].cumsum()
+
+            st.line_chart(
+                equity_curve
+            )
+
+        else:
+
+            st.info(
+                "No trades available."
             )
 
     # ======================================
@@ -194,9 +412,81 @@ if page == "Trading":
 
     with tab3:
 
-        st.subheader("Trade History")
+        st.subheader(
+            "Trade History"
+        )
+
+        st.caption(
+            f"Total Trades: {len(trades)}"
+        )
+
+        history = trades.copy()
+
+        if len(history) > 0:
+
+            history["Entry"] = history["Entry"].map(
+                lambda x: f"${x:,.2f}"
+            )
+
+            history["Stop"] = history["Stop"].map(
+                lambda x: f"${x:,.2f}"
+            )
+
+            history["Target"] = history["Target"].map(
+                lambda x: f"${x:,.2f}"
+            )
+
+            history["Exit"] = history["Exit"].map(
+                lambda x: f"${x:,.2f}"
+            )
+
+            history["Profit"] = history["Profit"].map(
+                lambda x: f"${x:,.2f}"
+            )
 
         st.dataframe(
-            trades,
+            history,
             use_container_width=True
         )
+
+# ==========================================
+# WEALTH
+# ==========================================
+
+if page == "Wealth":
+
+    st.title(
+        "Wealth Dashboard"
+    )
+
+    st.info(
+        "Coming Soon"
+    )
+
+# ==========================================
+# REAL ESTATE
+# ==========================================
+
+if page == "Real Estate":
+
+    st.title(
+        "Real Estate Analyzer"
+    )
+
+    st.info(
+        "Coming Soon"
+    )
+
+# ==========================================
+# ACQUISITIONS
+# ==========================================
+
+if page == "Acquisitions":
+
+    st.title(
+        "Business Acquisition Analyzer"
+    )
+
+    st.info(
+        "Coming Soon"
+    )
