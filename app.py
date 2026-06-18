@@ -111,62 +111,22 @@ if page == "Dashboard":
 
 if page == "Trading":
 
-    st.title("Trading Journal")
-
-    ticker = st.text_input("Ticker")
-
-    entry = st.number_input(
-        "Entry Price",
-        min_value=0.0
+    tab1, tab2, tab3 = st.tabs(
+        [
+            "Trade Entry",
+            "Analytics",
+            "History"
+        ]
     )
 
-    exit_price = st.number_input(
-        "Exit Price",
-        min_value=0.0
-    )
+    with tab1:
+        st.subheader("Trade Entry")
 
-    shares = st.number_input(
-        "Number of Shares",
-        min_value=1,
-        value=1
-    )
+    with tab2:
+        st.subheader("Analytics")
 
-    if st.button("Save Trade"):
-
-        profit = (
-            exit_price - entry
-        ) * shares
-
-        new_trade = pd.DataFrame([{
-            "Ticker": ticker,
-            "Entry": entry,
-            "Exit": exit_price,
-            "Shares": shares,
-            "Profit": profit
-        }])
-
-        existing = pd.read_csv(FILE_NAME)
-
-        updated = pd.concat(
-            [existing, new_trade],
-            ignore_index=True
-        )
-
-        updated.to_csv(
-            FILE_NAME,
-            index=False
-        )
-
-        st.success("Trade Saved!")
-
-    trades = pd.read_csv(FILE_NAME)
-
-    st.subheader("Trade History")
-
-    st.dataframe(
-        trades,
-        use_container_width=True
-    )
+    with tab3:
+        st.subheader("History")
 
 # ==========================================
 # WEALTH PAGE
