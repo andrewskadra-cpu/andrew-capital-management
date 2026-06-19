@@ -1,0 +1,2504 @@
+from __future__ import annotations
+
+from datetime import date
+from pathlib import Path
+import re
+
+import altair as alt
+import pandas as pd
+import streamlit as st
+
+try:
+    import plotly.express as px
+except ImportError:
+    px = None
+
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
+
+
+APP_NAME = "Andrew Capital Management"
+APP_DIR = Path(__file__).resolve().parent
+TRADES_FILE = APP_DIR / "trades.csv"
+WEALTH_FILE = APP_DIR / "wealth_accounts.csv"
+LIABILITIES_FILE = APP_DIR / "liabilities.csv"
+NET_WORTH_SNAPSHOTS_FILE = APP_DIR / "net_worth_snapshots.csv"
+REAL_ESTATE_FILE = APP_DIR / "real_estate_properties.csv"
+ACQUISITION_DEALS_FILE = APP_DIR / "acquisition_deals.csv"
+WATCHLIST_FILE = APP_DIR / "watchlist.csv"
+PLAYBOOK_FILE = APP_DIR / "trading_playbook.csv"
+TRADE_IMAGES_DIR = APP_DIR / "trade_images"
+
+TRADE_COLUMNS = [
+    "Date",
+    "Ticker",
+    "Direction",
+    "Setup",
+    "Entry",
+    "Stop",
+    "Target",
+    "Exit",
+    "Shares",
+    "Profit",
+    "RR",
+    "Grade",
+    "Trade Session",
+    "Emotional State",
+    "Entered Too Early",
+    "Oversized Position",
+    "Ignored Stop",
+    "Chased Entry",
+    "Revenge Trade",
+    "Emotional Trade",
+    "Averaged Down",
+    "Moved Stop",
+    "No Trade Plan",
+    "Compliance Score",
+    "Trade Quality Score",
+    "Entry Screenshot",
+    "Exit Screenshot",
+    "Pre-Trade Notes",
+    "Post-Trade Review",
+    "Followed Plan",
+    "What Worked",
+    "What Failed",
+    "Take Again",
+    "Notes",
+]
+WEALTH_COLUMNS = ["Account", "Type", "Balance"]
+LIABILITY_COLUMNS = ["Account", "Type", "Balance"]
+NET_WORTH_SNAPSHOT_COLUMNS = ["Date", "Net Worth"]
+REAL_ESTATE_COLUMNS = [
+    "Property Name",
+    "Purchase Price",
+    "Current Value",
+    "Monthly Rent",
+    "Mortgage Balance",
+    "Annual Taxes",
+    "Insurance",
+]
+ACQUISITION_DEAL_COLUMNS = [
+    "Company Name",
+    "Industry",
+    "Revenue",
+    "EBITDA",
+    "Asking Price",
+    "Multiple",
+    "Status",
+]
+WATCHLIST_COLUMNS = ["Ticker"]
+PLAYBOOK_COLUMNS = ["Setup Name", "Description", "Entry Rules", "Exit Rules", "Risk Rules", "Screenshot"]
+SETUPS = [
+    "Breakout",
+    "Pullback",
+    "Support Bounce",
+    "Trend Continuation",
+    "Reversal",
+    "Earnings Momentum",
+    "Other",
+]
+TRADE_GRADES = ["A+", "A", "B", "C", "D", "F"]
+TRADE_SESSIONS = ["Opening Range", "Morning", "Midday", "Afternoon", "Power Hour"]
+EMOTIONAL_STATES = ["Focused", "Confident", "Neutral", "Fearful", "Frustrated", "FOMO", "Tired"]
+MISTAKE_COLUMNS = [
+    "Entered Too Early",
+    "Oversized Position",
+    "Ignored Stop",
+    "Chased Entry",
+    "Revenge Trade",
+    "Emotional Trade",
+    "Averaged Down",
+    "Moved Stop",
+    "No Trade Plan",
+]
+ACCOUNT_TYPES = ["Checking", "Savings", "Brokerage", "401k", "HSA", "Crypto", "Real Estate Equity", "Trading Account"]
+LIABILITY_TYPES = ["Mortgage", "Auto Loan", "Credit Card"]
+IMAGE_COLUMNS = ["Entry Screenshot", "Exit Screenshot"]
+DEAL_STATUSES = ["Lead", "Contacted", "NDA Signed", "CIM Received", "Under LOI", "Closed"]
+
+
+def configure_page() -> None:
+    st.set_page_config(page_title=APP_NAME, layout="wide")
+    st.markdown(
+        """
+        <style>
+            .stApp { background: #0b1020; color: #e5e7eb; }
+            .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+            div[data-testid="stMetricValue"] { font-size: 1.6rem; }
+            .executive-hero {
+                background: linear-gradient(135deg, #111827 0%, #172554 52%, #0f172a 100%);
+                border: 1px solid rgba(148, 163, 184, 0.24);
+                border-radius: 8px;
+                padding: 1.5rem;
+                margin-bottom: 1rem;
+            }
+            .executive-hero h1 {
+                color: #f8fafc;
+                font-size: 2.1rem;
+                margin: 0 0 0.35rem 0;
+            }
+            .executive-hero p {
+                color: #cbd5e1;
+                margin: 0;
+            }
+            .kpi-card {
+                background: #111827;
+                border: 1px solid rgba(148, 163, 184, 0.22);
+                border-radius: 8px;
+                padding: 1rem;
+                min-height: 132px;
+            }
+            .kpi-label {
+                color: #94a3b8;
+                font-size: 0.82rem;
+                letter-spacing: 0.04em;
+                text-transform: uppercase;
+                margin-bottom: 0.35rem;
+            }
+            .kpi-value {
+                color: #f8fafc;
+                font-size: 1.55rem;
+                font-weight: 700;
+                line-height: 1.2;
+            }
+            .kpi-note {
+                color: #94a3b8;
+                font-size: 0.88rem;
+                margin-top: 0.45rem;
+            }
+            .goal-card {
+                background: #0f172a;
+                border: 1px solid rgba(148, 163, 184, 0.22);
+                border-radius: 8px;
+                padding: 1rem;
+                margin-bottom: 0.75rem;
+            }
+            .goal-title {
+                color: #f8fafc;
+                font-weight: 700;
+                margin-bottom: 0.2rem;
+            }
+            .goal-meta {
+                color: #94a3b8;
+                font-size: 0.88rem;
+                margin-bottom: 0.6rem;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def money(value: float) -> str:
+    return f"${value:,.2f}"
+
+
+def percent(value: float) -> str:
+    return f"{value:.1f}%"
+
+
+def clamp_progress(value: float, target: float) -> float:
+    if target <= 0:
+        return 0.0
+    return max(0.0, min(value / target, 1.0))
+
+
+def render_kpi_card(label: str, value: str, note: str = "") -> None:
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+            <div class="kpi-label">{label}</div>
+            <div class="kpi-value">{value}</div>
+            <div class="kpi-note">{note}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_goal_progress(title: str, current: float, target: float, detail: str) -> None:
+    progress = clamp_progress(current, target)
+    st.markdown(
+        f"""
+        <div class="goal-card">
+            <div class="goal-title">{title}</div>
+            <div class="goal-meta">{detail}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.progress(progress, text=f"{percent(progress * 100)} complete")
+
+
+def safe_filename(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    return cleaned.strip("._") or "image"
+
+
+def default_value_for_column(column: str) -> object:
+    if column == "Grade":
+        return "C"
+    if column == "Trade Session":
+        return "Morning"
+    if column == "Emotional State":
+        return "Neutral"
+    if column == "Compliance Score":
+        return 100
+    if column == "Trade Quality Score":
+        return 0
+    if column in MISTAKE_COLUMNS:
+        return False
+    if column in [
+        "Date",
+        "Ticker",
+        "Direction",
+        "Setup",
+        "Notes",
+        "Account",
+        "Type",
+        "Followed Plan",
+        "Take Again",
+        "Pre-Trade Notes",
+        "Post-Trade Review",
+        "What Worked",
+        "What Failed",
+        "Setup Name",
+        "Description",
+        "Entry Rules",
+        "Exit Rules",
+        "Risk Rules",
+        "Screenshot",
+        *IMAGE_COLUMNS,
+    ]:
+        return ""
+    return 0
+
+
+def ensure_csv(path: Path, columns: list[str], seed_rows: list[dict[str, object]] | None = None) -> None:
+    if not path.exists():
+        pd.DataFrame(seed_rows or [], columns=columns).to_csv(path, index=False)
+        return
+
+    df = pd.read_csv(path)
+    missing_columns = [column for column in columns if column not in df.columns]
+    if not missing_columns:
+        return
+
+    for column in missing_columns:
+        df[column] = default_value_for_column(column)
+    df[columns].to_csv(path, index=False)
+
+
+def seed_wealth_accounts() -> list[dict[str, object]]:
+    return [
+        {"Account": "Primary Checking", "Type": "Checking", "Balance": 8500.00},
+        {"Account": "Emergency Savings", "Type": "Savings", "Balance": 25000.00},
+        {"Account": "Long-Term Brokerage", "Type": "Brokerage", "Balance": 78000.00},
+        {"Account": "Employer 401k", "Type": "401k", "Balance": 142000.00},
+        {"Account": "Health Savings Account", "Type": "HSA", "Balance": 0.00},
+        {"Account": "Crypto Wallet", "Type": "Crypto", "Balance": 0.00},
+        {"Account": "Home Equity", "Type": "Real Estate Equity", "Balance": 0.00},
+        {"Account": "Active Trading", "Type": "Trading Account", "Balance": 35000.00},
+    ]
+
+
+def seed_liabilities() -> list[dict[str, object]]:
+    return [
+        {"Account": "Primary Mortgage", "Type": "Mortgage", "Balance": 0.00},
+        {"Account": "Auto Loan", "Type": "Auto Loan", "Balance": 0.00},
+        {"Account": "Credit Card", "Type": "Credit Card", "Balance": 0.00},
+    ]
+
+
+def seed_real_estate_properties() -> list[dict[str, object]]:
+    return [
+        {
+            "Property Name": "Sample Rental",
+            "Purchase Price": 350000.0,
+            "Current Value": 375000.0,
+            "Monthly Rent": 2800.0,
+            "Mortgage Balance": 280000.0,
+            "Annual Taxes": 4200.0,
+            "Insurance": 1500.0,
+        }
+    ]
+
+
+def seed_acquisition_deals() -> list[dict[str, object]]:
+    return [
+        {
+            "Company Name": "Sample Manufacturing Co",
+            "Industry": "Manufacturing",
+            "Revenue": 900000.0,
+            "EBITDA": 160000.0,
+            "Asking Price": 500000.0,
+            "Multiple": 3.13,
+            "Status": "Lead",
+        }
+    ]
+
+
+def seed_watchlist() -> list[dict[str, object]]:
+    return [{"Ticker": ticker} for ticker in ["NVDA", "TSLA", "AMD", "META", "AAPL"]]
+
+
+def seed_playbook() -> list[dict[str, object]]:
+    return [
+        {
+            "Setup Name": "Breakout",
+            "Description": "Price clears a defined resistance level with confirming volume.",
+            "Entry Rules": "Enter on clean break and hold above resistance.",
+            "Exit Rules": "Take profits into extension or exit on failed breakout.",
+            "Risk Rules": "Stop below breakout level or prior pivot.",
+            "Screenshot": "",
+        }
+    ]
+
+
+def initialize_files() -> None:
+    TRADE_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_csv(TRADES_FILE, TRADE_COLUMNS)
+    ensure_csv(WEALTH_FILE, WEALTH_COLUMNS, seed_wealth_accounts())
+    ensure_csv(LIABILITIES_FILE, LIABILITY_COLUMNS, seed_liabilities())
+    ensure_csv(NET_WORTH_SNAPSHOTS_FILE, NET_WORTH_SNAPSHOT_COLUMNS)
+    ensure_csv(REAL_ESTATE_FILE, REAL_ESTATE_COLUMNS, seed_real_estate_properties())
+    ensure_csv(ACQUISITION_DEALS_FILE, ACQUISITION_DEAL_COLUMNS, seed_acquisition_deals())
+    ensure_csv(WATCHLIST_FILE, WATCHLIST_COLUMNS, seed_watchlist())
+    ensure_csv(PLAYBOOK_FILE, PLAYBOOK_COLUMNS, seed_playbook())
+
+
+def read_trades() -> pd.DataFrame:
+    df = pd.read_csv(TRADES_FILE)
+    for column in TRADE_COLUMNS:
+        if column not in df.columns:
+            df[column] = default_value_for_column(column)
+
+    df = df[TRADE_COLUMNS].copy()
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
+    df["Ticker"] = df["Ticker"].fillna("").astype(str).str.upper().str.strip()
+    df["Direction"] = df["Direction"].fillna("Long").astype(str)
+    df["Setup"] = df["Setup"].fillna("Other").astype(str)
+    df["Grade"] = df["Grade"].fillna("C").astype(str).str.upper().str.strip()
+    df.loc[~df["Grade"].isin(TRADE_GRADES), "Grade"] = "C"
+    df["Trade Session"] = df["Trade Session"].fillna("Morning").astype(str)
+    df.loc[~df["Trade Session"].isin(TRADE_SESSIONS), "Trade Session"] = "Morning"
+    df["Emotional State"] = df["Emotional State"].fillna("Neutral").astype(str)
+    df.loc[~df["Emotional State"].isin(EMOTIONAL_STATES), "Emotional State"] = "Neutral"
+    df["Notes"] = df["Notes"].fillna("").astype(str)
+    for column in ["Pre-Trade Notes", "Post-Trade Review", "Followed Plan", "What Worked", "What Failed", "Take Again"]:
+        df[column] = df[column].fillna("").astype(str)
+    for column in MISTAKE_COLUMNS:
+        df[column] = df[column].map(parse_checkbox_value).fillna(False).astype(bool)
+    for column in IMAGE_COLUMNS:
+        df[column] = df[column].fillna("").astype(str)
+
+    for column in ["Entry", "Stop", "Target", "Exit", "Shares", "Profit", "RR"]:
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+
+    df["Result"] = df["Profit"].apply(lambda value: "Win" if value > 0 else "Loss" if value < 0 else "Flat")
+    df["Compliance Score"] = df.apply(calculate_compliance_score, axis=1)
+    df["Trade Quality Score"] = df.apply(calculate_trade_quality_score, axis=1)
+    return df
+
+
+def save_trades(df: pd.DataFrame) -> None:
+    df[TRADE_COLUMNS].to_csv(TRADES_FILE, index=False)
+
+
+def save_uploaded_image(uploaded_file: object, ticker: str, label: str) -> str:
+    if uploaded_file is None:
+        return ""
+
+    TRADE_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    original_name = safe_filename(uploaded_file.name)
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in [".png", ".jpg", ".jpeg", ".webp"]:
+        suffix = ".png"
+
+    timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S_%f")
+    clean_ticker = safe_filename(ticker.upper() or "TRADE")
+    clean_label = safe_filename(label)
+    file_name = f"{timestamp}_{clean_ticker}_{clean_label}{suffix}"
+    destination = TRADE_IMAGES_DIR / file_name
+    destination.write_bytes(uploaded_file.getbuffer())
+    return str(Path("trade_images") / file_name)
+
+
+def resolve_image_path(path_value: object) -> Path | None:
+    if pd.isna(path_value):
+        return None
+    path_text = str(path_value).strip()
+    if not path_text:
+        return None
+
+    candidate = Path(path_text)
+    if not candidate.is_absolute():
+        candidate = APP_DIR / candidate
+    return candidate
+
+
+def parse_checkbox_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if pd.isna(value):
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value).strip().lower() in {"true", "1", "yes", "y", "checked"}
+
+
+def grade_score(grade: str) -> int:
+    return {"A+": 100, "A": 92, "B": 82, "C": 70, "D": 58, "F": 35}.get(str(grade).upper(), 70)
+
+
+def emotion_score(emotion: str) -> int:
+    return {
+        "Focused": 100,
+        "Confident": 92,
+        "Neutral": 80,
+        "Fearful": 62,
+        "Frustrated": 55,
+        "FOMO": 45,
+        "Tired": 50,
+    }.get(str(emotion), 80)
+
+
+def calculate_compliance_score(row: pd.Series) -> int:
+    violations = sum(1 for column in MISTAKE_COLUMNS if bool(row.get(column, False)))
+    return max(0, 100 - violations * 10)
+
+
+def calculate_trade_quality_score(row: pd.Series) -> int:
+    rr = float(row.get("RR", 0) or 0)
+    rr_component = min(rr / 3, 1) * 30
+    compliance_component = calculate_compliance_score(row) * 0.35
+    grade_component = grade_score(str(row.get("Grade", "C"))) * 0.25
+    emotion_component = emotion_score(str(row.get("Emotional State", "Neutral"))) * 0.10
+    return int(round(max(0, min(rr_component + compliance_component + grade_component + emotion_component, 100))))
+
+
+def read_watchlist() -> pd.DataFrame:
+    df = pd.read_csv(WATCHLIST_FILE)
+    for column in WATCHLIST_COLUMNS:
+        if column not in df.columns:
+            df[column] = ""
+    df = df[WATCHLIST_COLUMNS].copy()
+    df["Ticker"] = df["Ticker"].fillna("").astype(str).str.upper().str.strip()
+    return df[df["Ticker"] != ""].drop_duplicates("Ticker")
+
+
+def save_watchlist(df: pd.DataFrame) -> None:
+    df[WATCHLIST_COLUMNS].to_csv(WATCHLIST_FILE, index=False)
+
+
+def read_playbook() -> pd.DataFrame:
+    df = pd.read_csv(PLAYBOOK_FILE)
+    for column in PLAYBOOK_COLUMNS:
+        if column not in df.columns:
+            df[column] = ""
+    return df[PLAYBOOK_COLUMNS].fillna("").astype(str)
+
+
+def save_playbook(df: pd.DataFrame) -> None:
+    df[PLAYBOOK_COLUMNS].to_csv(PLAYBOOK_FILE, index=False)
+
+
+@st.cache_data(ttl=300)
+def fetch_market_snapshot(tickers: tuple[str, ...]) -> pd.DataFrame:
+    if yf is None or not tickers:
+        return pd.DataFrame(columns=["Ticker", "Current Price", "Daily Change %", "Daily Change", "Volume", "ATR", "52 Week High", "52 Week Low"])
+
+    rows = []
+    for ticker in tickers:
+        try:
+            data = yf.Ticker(ticker)
+            history = data.history(period="1y")
+            if history.empty:
+                continue
+            latest = history.iloc[-1]
+            previous_close = history["Close"].iloc[-2] if len(history) > 1 else latest["Close"]
+            daily_change = latest["Close"] - previous_close
+            daily_change_pct = (daily_change / previous_close * 100) if previous_close else 0.0
+            true_range = pd.concat(
+                [
+                    history["High"] - history["Low"],
+                    (history["High"] - history["Close"].shift()).abs(),
+                    (history["Low"] - history["Close"].shift()).abs(),
+                ],
+                axis=1,
+            ).max(axis=1)
+            atr = true_range.tail(14).mean() if not true_range.empty else 0.0
+            rows.append(
+                {
+                    "Ticker": ticker,
+                    "Current Price": float(latest["Close"]),
+                    "Daily Change %": float(daily_change_pct),
+                    "Daily Change": float(daily_change),
+                    "Volume": float(latest.get("Volume", 0)),
+                    "ATR": float(atr),
+                    "52 Week High": float(history["High"].max()),
+                    "52 Week Low": float(history["Low"].min()),
+                }
+            )
+        except Exception:
+            continue
+    return pd.DataFrame(rows)
+
+
+def read_wealth_accounts() -> pd.DataFrame:
+    df = pd.read_csv(WEALTH_FILE)
+    for column in WEALTH_COLUMNS:
+        if column not in df.columns:
+            df[column] = "" if column != "Balance" else 0
+    df = df[WEALTH_COLUMNS].copy()
+    df["Balance"] = pd.to_numeric(df["Balance"], errors="coerce").fillna(0.0)
+    return df
+
+
+def save_wealth_accounts(df: pd.DataFrame) -> None:
+    df[WEALTH_COLUMNS].to_csv(WEALTH_FILE, index=False)
+
+
+def read_liabilities() -> pd.DataFrame:
+    df = pd.read_csv(LIABILITIES_FILE)
+    for column in LIABILITY_COLUMNS:
+        if column not in df.columns:
+            df[column] = "" if column != "Balance" else 0
+    df = df[LIABILITY_COLUMNS].copy()
+    df["Balance"] = pd.to_numeric(df["Balance"], errors="coerce").fillna(0.0)
+    return df
+
+
+def save_liabilities(df: pd.DataFrame) -> None:
+    df[LIABILITY_COLUMNS].to_csv(LIABILITIES_FILE, index=False)
+
+
+def read_net_worth_snapshots() -> pd.DataFrame:
+    df = pd.read_csv(NET_WORTH_SNAPSHOTS_FILE)
+    for column in NET_WORTH_SNAPSHOT_COLUMNS:
+        if column not in df.columns:
+            df[column] = "" if column == "Date" else 0
+
+    df = df[NET_WORTH_SNAPSHOT_COLUMNS].copy()
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
+    df["Net Worth"] = pd.to_numeric(df["Net Worth"], errors="coerce").fillna(0.0)
+    return df.dropna(subset=["Date"]).sort_values("Date")
+
+
+def save_net_worth_snapshots(df: pd.DataFrame) -> None:
+    df[NET_WORTH_SNAPSHOT_COLUMNS].to_csv(NET_WORTH_SNAPSHOTS_FILE, index=False)
+
+
+def save_monthly_net_worth_snapshot(net_worth: float) -> None:
+    snapshots = read_net_worth_snapshots()
+    snapshot_date = date.today().replace(day=1)
+    new_row = pd.DataFrame([{"Date": snapshot_date, "Net Worth": net_worth}])
+
+    if snapshots.empty:
+        updated = new_row
+    else:
+        updated = snapshots.copy()
+        same_month = pd.to_datetime(updated["Date"]).dt.to_period("M") == pd.Period(snapshot_date, freq="M")
+        if same_month.any():
+            updated.loc[same_month, "Date"] = snapshot_date
+            updated.loc[same_month, "Net Worth"] = net_worth
+        else:
+            updated = pd.concat([updated, new_row], ignore_index=True)
+
+    save_net_worth_snapshots(updated.sort_values("Date"))
+
+
+def net_worth_snapshot_stats(snapshots: pd.DataFrame) -> dict[str, float]:
+    if snapshots.empty:
+        return {
+            "highest": 0.0,
+            "lowest": 0.0,
+            "monthly_change": 0.0,
+            "annualized_growth": 0.0,
+        }
+
+    ordered = snapshots.sort_values("Date").copy()
+    highest = ordered["Net Worth"].max()
+    lowest = ordered["Net Worth"].min()
+    monthly_change = 0.0
+    if len(ordered) >= 2:
+        monthly_change = ordered["Net Worth"].iloc[-1] - ordered["Net Worth"].iloc[-2]
+
+    annualized_growth = 0.0
+    first_value = ordered["Net Worth"].iloc[0]
+    last_value = ordered["Net Worth"].iloc[-1]
+    first_date = pd.Timestamp(ordered["Date"].iloc[0])
+    last_date = pd.Timestamp(ordered["Date"].iloc[-1])
+    elapsed_years = max((last_date - first_date).days / 365.25, 0)
+    if first_value > 0 and last_value > 0 and elapsed_years > 0:
+        annualized_growth = ((last_value / first_value) ** (1 / elapsed_years) - 1) * 100
+
+    return {
+        "highest": highest,
+        "lowest": lowest,
+        "monthly_change": monthly_change,
+        "annualized_growth": annualized_growth,
+    }
+
+
+def read_real_estate_properties() -> pd.DataFrame:
+    df = pd.read_csv(REAL_ESTATE_FILE)
+    for column in REAL_ESTATE_COLUMNS:
+        if column not in df.columns:
+            df[column] = "" if column == "Property Name" else 0
+
+    df = df[REAL_ESTATE_COLUMNS].copy()
+    df["Property Name"] = df["Property Name"].fillna("").astype(str)
+    for column in REAL_ESTATE_COLUMNS:
+        if column != "Property Name":
+            df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+    return df
+
+
+def save_real_estate_properties(df: pd.DataFrame) -> None:
+    df[REAL_ESTATE_COLUMNS].to_csv(REAL_ESTATE_FILE, index=False)
+
+
+def enrich_real_estate_properties(properties: pd.DataFrame) -> pd.DataFrame:
+    enriched = properties.copy()
+    if enriched.empty:
+        for column in ["Equity", "Annual Rent", "Cash Flow", "Cap Rate"]:
+            enriched[column] = []
+        return enriched
+
+    enriched["Equity"] = enriched["Current Value"] - enriched["Mortgage Balance"]
+    enriched["Annual Rent"] = enriched["Monthly Rent"] * 12
+    enriched["Cash Flow"] = enriched["Annual Rent"] - enriched["Annual Taxes"] - enriched["Insurance"]
+    enriched["Cap Rate"] = enriched.apply(
+        lambda row: (row["Cash Flow"] / row["Current Value"] * 100) if row["Current Value"] else 0.0,
+        axis=1,
+    )
+    return enriched
+
+
+def read_acquisition_deals() -> pd.DataFrame:
+    df = pd.read_csv(ACQUISITION_DEALS_FILE)
+    for column in ACQUISITION_DEAL_COLUMNS:
+        if column not in df.columns:
+            df[column] = "" if column in ["Company Name", "Industry", "Status"] else 0
+
+    df = df[ACQUISITION_DEAL_COLUMNS].copy()
+    df["Company Name"] = df["Company Name"].fillna("").astype(str)
+    df["Industry"] = df["Industry"].fillna("").astype(str)
+    df["Status"] = df["Status"].fillna("Lead").astype(str)
+    df.loc[~df["Status"].isin(DEAL_STATUSES), "Status"] = "Lead"
+    for column in ["Revenue", "EBITDA", "Asking Price", "Multiple"]:
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0)
+    return df
+
+
+def save_acquisition_deals(df: pd.DataFrame) -> None:
+    df[ACQUISITION_DEAL_COLUMNS].to_csv(ACQUISITION_DEALS_FILE, index=False)
+
+
+def acquisition_pipeline_metrics(deals: pd.DataFrame) -> dict[str, float]:
+    qualified_statuses = ["NDA Signed", "CIM Received", "Under LOI", "Closed"]
+    deals_reviewed = len(deals)
+    deals_qualified = int(deals["Status"].isin(qualified_statuses).sum()) if not deals.empty else 0
+    average_multiple = deals["Multiple"].mean() if not deals.empty else 0.0
+    total_pipeline_value = deals["Asking Price"].sum() if not deals.empty else 0.0
+    return {
+        "deals_reviewed": deals_reviewed,
+        "deals_qualified": deals_qualified,
+        "average_multiple": average_multiple,
+        "total_pipeline_value": total_pipeline_value,
+    }
+
+
+def calculate_profit(direction: str, entry: float, exit_price: float, shares: float) -> float:
+    if direction == "Short":
+        return (entry - exit_price) * shares
+    return (exit_price - entry) * shares
+
+
+def calculate_rr(entry: float, stop: float, target: float) -> float:
+    risk = abs(entry - stop)
+    reward = abs(target - entry)
+    return reward / risk if risk > 0 else 0.0
+
+
+def filter_trade_history(trades: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
+    if trades.empty:
+        st.info("No trades entered yet.")
+        return trades
+
+    ticker_options = sorted(ticker for ticker in trades["Ticker"].dropna().unique() if ticker)
+    setup_options = sorted(set(trades["Setup"].dropna().unique()).union(SETUPS))
+
+    col1, col2, col3 = st.columns([1, 1, 1.2])
+    with col1:
+        selected_tickers = st.multiselect(
+            "History Filter: Ticker",
+            options=ticker_options,
+            default=ticker_options,
+            key=f"{key_prefix}_ticker_filter",
+        )
+    with col2:
+        selected_setups = st.multiselect(
+            "History Filter: Setup",
+            options=setup_options,
+            default=setup_options,
+            key=f"{key_prefix}_setup_filter",
+        )
+    with col3:
+        valid_dates = trades["Date"].dropna()
+        if valid_dates.empty:
+            selected_dates = None
+            st.caption("No valid dates available.")
+        else:
+            selected_dates = st.date_input(
+                "History Filter: Date Range",
+                value=(valid_dates.min(), valid_dates.max()),
+                min_value=valid_dates.min(),
+                max_value=valid_dates.max(),
+                key=f"{key_prefix}_date_filter",
+            )
+
+    filtered = trades.copy()
+    if selected_tickers:
+        filtered = filtered[filtered["Ticker"].isin(selected_tickers)]
+    if selected_setups:
+        filtered = filtered[filtered["Setup"].isin(selected_setups)]
+    if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
+        start_date, end_date = selected_dates
+        filtered = filtered[(filtered["Date"] >= start_date) & (filtered["Date"] <= end_date)]
+    return filtered
+
+
+def summarize_trades(trades: pd.DataFrame) -> dict[str, float]:
+    total_trades = len(trades)
+    total_profit = trades["Profit"].sum() if total_trades else 0.0
+    winners = trades[trades["Profit"] > 0]
+    losers = trades[trades["Profit"] < 0]
+    win_rate = len(winners) / total_trades * 100 if total_trades else 0.0
+    return {
+        "total_trades": total_trades,
+        "total_profit": total_profit,
+        "win_rate": win_rate,
+        "avg_rr": trades["RR"].mean() if total_trades else 0.0,
+        "best_trade": trades["Profit"].max() if total_trades else 0.0,
+        "worst_trade": trades["Profit"].min() if total_trades else 0.0,
+        "avg_winner": winners["Profit"].mean() if not winners.empty else 0.0,
+        "avg_loser": losers["Profit"].mean() if not losers.empty else 0.0,
+    }
+
+
+def advanced_trade_metrics(trades: pd.DataFrame) -> dict[str, float]:
+    if trades.empty:
+        return {
+            "expectancy": 0.0,
+            "profit_factor": 0.0,
+            "sharpe_ratio": 0.0,
+            "avg_holding_profit": 0.0,
+            "avg_holding_loss": 0.0,
+            "largest_winner": 0.0,
+            "largest_loser": 0.0,
+            "current_drawdown": 0.0,
+            "max_drawdown": 0.0,
+            "consecutive_wins": 0,
+            "consecutive_losses": 0,
+        }
+
+    ordered = trades.sort_values("Date").copy()
+    winners = ordered[ordered["Profit"] > 0]
+    losers = ordered[ordered["Profit"] < 0]
+    gross_profit = winners["Profit"].sum()
+    gross_loss = abs(losers["Profit"].sum())
+    equity = ordered["Profit"].cumsum()
+    running_peak = equity.cummax()
+    drawdown = equity - running_peak
+    returns = ordered["Profit"]
+    sharpe_ratio = 0.0
+    if len(returns) > 1 and returns.std() != 0:
+        sharpe_ratio = (returns.mean() / returns.std()) * (len(returns) ** 0.5)
+
+    max_wins = max_losses = current_wins = current_losses = 0
+    for value in ordered["Profit"]:
+        if value > 0:
+            current_wins += 1
+            current_losses = 0
+        elif value < 0:
+            current_losses += 1
+            current_wins = 0
+        else:
+            current_wins = 0
+            current_losses = 0
+        max_wins = max(max_wins, current_wins)
+        max_losses = max(max_losses, current_losses)
+
+    return {
+        "expectancy": ordered["Profit"].mean(),
+        "profit_factor": gross_profit / gross_loss if gross_loss else 0.0,
+        "sharpe_ratio": sharpe_ratio,
+        "avg_holding_profit": winners["Profit"].mean() if not winners.empty else 0.0,
+        "avg_holding_loss": losers["Profit"].mean() if not losers.empty else 0.0,
+        "largest_winner": ordered["Profit"].max(),
+        "largest_loser": ordered["Profit"].min(),
+        "current_drawdown": drawdown.iloc[-1] if len(drawdown) else 0.0,
+        "max_drawdown": drawdown.min() if len(drawdown) else 0.0,
+        "consecutive_wins": max_wins,
+        "consecutive_losses": max_losses,
+    }
+
+
+def grouped_trade_analysis(trades: pd.DataFrame, group_column: str) -> pd.DataFrame:
+    if trades.empty or group_column not in trades.columns:
+        return pd.DataFrame(columns=[group_column, "Trades", "Win Rate", "Total Profit", "Average RR", "Expectancy"])
+
+    grouped = (
+        trades.groupby(group_column, dropna=False)
+        .agg(
+            Trades=(group_column, "size"),
+            Wins=("Profit", lambda values: (values > 0).sum()),
+            Total_Profit=("Profit", "sum"),
+            Average_RR=("RR", "mean"),
+            Expectancy=("Profit", "mean"),
+        )
+        .reset_index()
+    )
+    grouped["Win Rate"] = grouped["Wins"] / grouped["Trades"] * 100
+    grouped = grouped.rename(columns={"Total_Profit": "Total Profit", "Average_RR": "Average RR"})
+    return grouped.drop(columns=["Wins"]).sort_values("Total Profit", ascending=False)
+
+
+def day_of_week_analysis(trades: pd.DataFrame) -> pd.DataFrame:
+    if trades.empty:
+        return pd.DataFrame(columns=["Day", "Trades", "Profit", "Win Rate"])
+
+    data = trades.copy()
+    data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+    data = data.dropna(subset=["Date"])
+    if data.empty:
+        return pd.DataFrame(columns=["Day", "Trades", "Profit", "Win Rate"])
+
+    data["Day"] = data["Date"].dt.day_name()
+    result = (
+        data.groupby("Day")
+        .agg(Trades=("Day", "size"), Profit=("Profit", "sum"), Wins=("Profit", lambda values: (values > 0).sum()))
+        .reset_index()
+    )
+    result["Win Rate"] = result["Wins"] / result["Trades"] * 100
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    result["Day"] = pd.Categorical(result["Day"], categories=days, ordered=True)
+    return result.drop(columns=["Wins"]).sort_values("Day")
+
+
+def compliance_comparison(trades: pd.DataFrame) -> pd.DataFrame:
+    if trades.empty:
+        return pd.DataFrame(columns=["Compliance Group", "Trades", "Total Profit", "Average Profit", "Win Rate"])
+
+    data = trades.copy()
+    data["Compliance Group"] = data["Compliance Score"].apply(lambda score: "High Compliance" if score >= 80 else "Low Compliance")
+    grouped = (
+        data.groupby("Compliance Group")
+        .agg(
+            Trades=("Compliance Group", "size"),
+            Total_Profit=("Profit", "sum"),
+            Average_Profit=("Profit", "mean"),
+            Wins=("Profit", lambda values: (values > 0).sum()),
+        )
+        .reset_index()
+    )
+    grouped["Win Rate"] = grouped["Wins"] / grouped["Trades"] * 100
+    return grouped.rename(columns={"Total_Profit": "Total Profit", "Average_Profit": "Average Profit"}).drop(columns=["Wins"])
+
+
+def setup_performance(trades: pd.DataFrame) -> pd.DataFrame:
+    if trades.empty:
+        return pd.DataFrame(columns=["Setup", "Trades", "Wins", "Losses", "Win Rate", "Total Profit", "Avg Profit", "Avg RR", "Expectancy"])
+
+    performance = (
+        trades.groupby("Setup", dropna=False)
+        .agg(
+            Trades=("Setup", "size"),
+            Wins=("Profit", lambda values: (values > 0).sum()),
+            Losses=("Profit", lambda values: (values < 0).sum()),
+            Total_Profit=("Profit", "sum"),
+            Avg_Profit=("Profit", "mean"),
+            Avg_RR=("RR", "mean"),
+            Expectancy=("Profit", "mean"),
+        )
+        .reset_index()
+    )
+    performance["Win Rate"] = performance["Wins"] / performance["Trades"] * 100
+    performance = performance.rename(
+        columns={
+            "Total_Profit": "Total Profit",
+            "Avg_Profit": "Avg Profit",
+            "Avg_RR": "Avg RR",
+        }
+    )
+    return performance.sort_values("Total Profit", ascending=False)
+
+
+def grade_performance(trades: pd.DataFrame) -> pd.DataFrame:
+    if trades.empty:
+        return pd.DataFrame(columns=["Grade", "Trades", "Wins", "Losses", "Win Rate", "Total Profit", "Average Profit", "Average RR"])
+
+    performance = (
+        trades.groupby("Grade", dropna=False)
+        .agg(
+            Trades=("Grade", "size"),
+            Wins=("Profit", lambda values: (values > 0).sum()),
+            Losses=("Profit", lambda values: (values < 0).sum()),
+            Total_Profit=("Profit", "sum"),
+            Average_Profit=("Profit", "mean"),
+            Average_RR=("RR", "mean"),
+        )
+        .reset_index()
+    )
+    performance["Win Rate"] = performance["Wins"] / performance["Trades"] * 100
+    performance = performance.rename(
+        columns={
+            "Total_Profit": "Total Profit",
+            "Average_Profit": "Average Profit",
+            "Average_RR": "Average RR",
+        }
+    )
+    performance["Grade"] = pd.Categorical(performance["Grade"], categories=TRADE_GRADES, ordered=True)
+    return performance.sort_values("Grade")
+
+
+def mistake_analysis(trades: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for mistake in MISTAKE_COLUMNS:
+        mistake_trades = trades[trades[mistake]]
+        trade_count = len(mistake_trades)
+        wins = int((mistake_trades["Profit"] > 0).sum()) if trade_count else 0
+        rows.append(
+            {
+                "Mistake": mistake,
+                "Count": trade_count,
+                "Profit Impact": mistake_trades["Profit"].sum() if trade_count else 0.0,
+                "Average Profit": mistake_trades["Profit"].mean() if trade_count else 0.0,
+                "Average Loss": mistake_trades.loc[mistake_trades["Profit"] < 0, "Profit"].mean() if trade_count else 0.0,
+                "Win Rate": wins / trade_count * 100 if trade_count else 0.0,
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["Profit Impact", "Count"], ascending=[True, False])
+
+
+def format_trade_table(trades: pd.DataFrame) -> pd.DataFrame:
+    formatted = trades[TRADE_COLUMNS].copy()
+    for column in ["Entry", "Stop", "Target", "Exit", "Profit"]:
+        formatted[column] = formatted[column].map(money)
+    formatted["RR"] = formatted["RR"].map(lambda value: f"{value:.2f}")
+    return formatted
+
+
+def render_trade_screenshots(history: pd.DataFrame) -> None:
+    st.subheader("Trade Screenshots")
+    rows_with_images = history[
+        history["Entry Screenshot"].astype(str).str.strip().ne("")
+        | history["Exit Screenshot"].astype(str).str.strip().ne("")
+    ]
+
+    if rows_with_images.empty:
+        st.info("No screenshots are saved for the selected trades.")
+        return
+
+    for index, row in rows_with_images.iterrows():
+        title_parts = [
+            str(row.get("Date", "")),
+            str(row.get("Ticker", "Trade")),
+            str(row.get("Setup", "")),
+        ]
+        title = " | ".join(part for part in title_parts if part and part != "NaT")
+        with st.expander(title or f"Trade {index + 1}"):
+            col1, col2 = st.columns(2)
+            for column, container in [("Entry Screenshot", col1), ("Exit Screenshot", col2)]:
+                with container:
+                    st.caption(column)
+                    path_text = str(row.get(column, "")).strip()
+                    if not path_text:
+                        st.info("No image saved.")
+                        continue
+
+                    st.code(path_text, language=None)
+                    image_path = resolve_image_path(path_text)
+                    if image_path is not None and image_path.exists():
+                        st.image(str(image_path), use_container_width=True)
+                    else:
+                        st.warning("Image file is missing or was moved.")
+
+
+def render_trade_metrics(trades: pd.DataFrame) -> None:
+    summary = summarize_trades(trades)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Trades", f"{summary['total_trades']:,}")
+    col2.metric("Profit", money(summary["total_profit"]))
+    col3.metric("Win Rate", percent(summary["win_rate"]))
+    col4.metric("Average RR", f"{summary['avg_rr']:.2f}")
+
+
+def render_setup_performance(trades: pd.DataFrame) -> None:
+    st.subheader("Setup Performance Analysis")
+    performance = setup_performance(trades)
+    if performance.empty:
+        st.info("Add trades to see setup performance.")
+        return
+
+    st.bar_chart(performance.set_index("Setup")["Total Profit"])
+    display = performance.copy()
+    display["Win Rate"] = display["Win Rate"].map(percent)
+    display["Total Profit"] = display["Total Profit"].map(money)
+    display["Avg Profit"] = display["Avg Profit"].map(money)
+    display["Avg RR"] = display["Avg RR"].map(lambda value: f"{value:.2f}")
+    display["Expectancy"] = display["Expectancy"].map(money)
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+
+def render_grade_performance(trades: pd.DataFrame) -> None:
+    st.subheader("Trade Grade Analytics")
+    performance = grade_performance(trades)
+    if performance.empty:
+        st.info("Add graded trades to see grade performance.")
+        return
+
+    chart_data = performance.set_index("Grade")["Total Profit"]
+    st.caption("Profit by Grade")
+    st.bar_chart(chart_data)
+
+    display = performance.copy()
+    display["Win Rate"] = display["Win Rate"].map(percent)
+    display["Total Profit"] = display["Total Profit"].map(money)
+    display["Average Profit"] = display["Average Profit"].map(money)
+    display["Average RR"] = display["Average RR"].map(lambda value: f"{value:.2f}")
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+
+def render_mistake_analysis(trades: pd.DataFrame) -> None:
+    st.subheader("Mistake Analysis")
+    if trades.empty:
+        st.info("Add trades to see mistake analysis.")
+        return
+
+    analysis = mistake_analysis(trades)
+    if analysis["Count"].sum() == 0:
+        st.info("No mistakes have been marked for the selected trades.")
+        return
+
+    most_common = analysis.iloc[0]
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Most Common Mistake", str(most_common["Mistake"]))
+    col2.metric("Mistake Count", f"{int(most_common['Count']):,}")
+    col3.metric("Profit Impact", money(float(most_common["Profit Impact"])))
+
+    st.caption("Mistake Frequency")
+    st.bar_chart(analysis.set_index("Mistake")["Count"])
+
+    col4, col5 = st.columns(2)
+    with col4:
+        st.caption("Profit Impact by Mistake")
+        st.bar_chart(analysis.set_index("Mistake")["Profit Impact"])
+    with col5:
+        st.caption("Win Rate When Mistake Occurred")
+        st.bar_chart(analysis.set_index("Mistake")["Win Rate"])
+
+    display = analysis.copy()
+    display["Profit Impact"] = display["Profit Impact"].map(money)
+    display["Average Profit"] = display["Average Profit"].map(money)
+    display["Average Loss"] = display["Average Loss"].fillna(0.0).map(money)
+    display["Win Rate"] = display["Win Rate"].map(percent)
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+
+def render_market_command_center() -> None:
+    st.subheader("Market Command Center")
+    if yf is None:
+        st.warning("Install yfinance to enable live market data: python -m pip install yfinance")
+        return
+
+    indexes = ["SPY", "QQQ", "DIA", "IWM"]
+    index_data = fetch_market_snapshot(tuple(indexes))
+    vix_data = fetch_market_snapshot(("^VIX",))
+
+    st.caption("Major Indexes")
+    if index_data.empty:
+        st.info("Market data is temporarily unavailable.")
+    else:
+        display = index_data.copy()
+        display["Current Price"] = display["Current Price"].map(money)
+        display["Daily Change %"] = display["Daily Change %"].map(percent)
+        display["Daily Change"] = display["Daily Change"].map(money)
+        display["Volume"] = display["Volume"].map(lambda value: f"{value:,.0f}")
+        display["ATR"] = display["ATR"].map(money)
+        display["52 Week High"] = display["52 Week High"].map(money)
+        display["52 Week Low"] = display["52 Week Low"].map(money)
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+    st.caption("Volatility")
+    if not vix_data.empty:
+        vix = vix_data.iloc[0]
+        col1, col2 = st.columns(2)
+        col1.metric("VIX", f"{vix['Current Price']:.2f}")
+        col2.metric("Daily Change", f"{vix['Daily Change']:.2f}")
+
+    st.caption("Custom Watchlist")
+    watchlist = read_watchlist()
+    with st.form("watchlist_form", clear_on_submit=True):
+        col1, col2 = st.columns([2, 1])
+        ticker = col1.text_input("Add Ticker").upper().strip()
+        submitted = col2.form_submit_button("Add")
+        if submitted and ticker:
+            updated = pd.concat([watchlist, pd.DataFrame([{"Ticker": ticker}])], ignore_index=True).drop_duplicates("Ticker")
+            save_watchlist(updated)
+            st.rerun()
+
+    watchlist_data = fetch_market_snapshot(tuple(watchlist["Ticker"].tolist()))
+    if watchlist_data.empty:
+        st.info("No watchlist data available.")
+    else:
+        display = watchlist_data.copy()
+        display["Current Price"] = display["Current Price"].map(money)
+        display["Daily Change %"] = display["Daily Change %"].map(percent)
+        display["Volume"] = display["Volume"].map(lambda value: f"{value:,.0f}")
+        display["ATR"] = display["ATR"].map(money)
+        display["52 Week High"] = display["52 Week High"].map(money)
+        display["52 Week Low"] = display["52 Week Low"].map(money)
+        st.dataframe(display[["Ticker", "Current Price", "Daily Change %", "Volume", "ATR", "52 Week High", "52 Week Low"]], use_container_width=True, hide_index=True)
+
+
+def render_risk_management() -> None:
+    st.subheader("Position Size Calculator")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    account_size = col1.number_input("Account Size", min_value=0.0, value=35000.0, step=500.0)
+    risk_pct = col2.number_input("Risk Percentage", min_value=0.0, value=1.0, step=0.25)
+    entry_price = col3.number_input("Entry Price", min_value=0.0, value=100.0, step=0.01, key="risk_entry_price")
+    stop_price = col4.number_input("Stop Price", min_value=0.0, value=95.0, step=0.01, key="risk_stop_price")
+    target_price = col5.number_input("Target Price", min_value=0.0, value=110.0, step=0.01, key="risk_target_price")
+
+    dollar_risk = account_size * risk_pct / 100
+    risk_per_share = abs(entry_price - stop_price)
+    recommended_shares = int(dollar_risk // risk_per_share) if risk_per_share else 0
+    max_position_size = recommended_shares * entry_price
+    reward_per_share = abs(target_price - entry_price)
+    rr_ratio = reward_per_share / risk_per_share if risk_per_share else 0.0
+
+    metric1, metric2, metric3, metric4, metric5 = st.columns(5)
+    metric1.metric("Dollar Risk", money(dollar_risk))
+    metric2.metric("Risk Per Share", money(risk_per_share))
+    metric3.metric("Recommended Shares", f"{recommended_shares:,}")
+    metric4.metric("Maximum Position Size", money(max_position_size))
+    metric5.metric("Planned RR", f"{rr_ratio:.2f}")
+
+    if risk_pct > 2:
+        st.warning("Risk exceeds a conservative 2% account-risk limit.")
+    if rr_ratio < 2:
+        st.warning("Planned RR is below 2.0. Consider passing unless your edge justifies it.")
+    if max_position_size > account_size:
+        st.warning("Maximum position size exceeds account size.")
+
+
+def render_advanced_trade_metrics(trades: pd.DataFrame) -> None:
+    st.subheader("Advanced Trade Metrics")
+    metrics = advanced_trade_metrics(trades)
+    row1 = st.columns(5)
+    row1[0].metric("Expectancy", money(metrics["expectancy"]))
+    row1[1].metric("Profit Factor", f"{metrics['profit_factor']:.2f}")
+    row1[2].metric("Sharpe Ratio", f"{metrics['sharpe_ratio']:.2f}")
+    row1[3].metric("Largest Winner", money(metrics["largest_winner"]))
+    row1[4].metric("Largest Loser", money(metrics["largest_loser"]))
+
+    row2 = st.columns(5)
+    row2[0].metric("Current Drawdown", money(metrics["current_drawdown"]))
+    row2[1].metric("Max Drawdown", money(metrics["max_drawdown"]))
+    row2[2].metric("Avg Holding Profit", money(metrics["avg_holding_profit"]))
+    row2[3].metric("Avg Holding Loss", money(metrics["avg_holding_loss"]))
+    row2[4].metric("Streaks", f"W {metrics['consecutive_wins']:,} / L {metrics['consecutive_losses']:,}")
+
+
+def render_strategy_intelligence(trades: pd.DataFrame) -> None:
+    st.subheader("Strategy Intelligence")
+    if trades.empty:
+        st.info("Add trades to unlock strategy intelligence.")
+        return
+
+    setup_stats = setup_performance(trades)
+    if not setup_stats.empty:
+        best = setup_stats.iloc[0]
+        worst = setup_stats.iloc[-1]
+        col1, col2 = st.columns(2)
+        col1.metric("Best Performing Setup", str(best["Setup"]), money(float(best["Total Profit"])))
+        col2.metric("Worst Performing Setup", str(worst["Setup"]), money(float(worst["Total Profit"])))
+
+    render_setup_performance(trades)
+
+    st.subheader("Long vs Short Analysis")
+    direction_stats = grouped_trade_analysis(trades, "Direction")
+    if not direction_stats.empty:
+        chart = direction_stats.set_index("Direction")["Total Profit"]
+        st.bar_chart(chart)
+        display = direction_stats.copy()
+        display["Win Rate"] = display["Win Rate"].map(percent)
+        display["Total Profit"] = display["Total Profit"].map(money)
+        display["Average RR"] = display["Average RR"].map(lambda value: f"{value:.2f}")
+        display["Expectancy"] = display["Expectancy"].map(money)
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+    st.subheader("Day of Week Analysis")
+    day_stats = day_of_week_analysis(trades)
+    if not day_stats.empty:
+        best_day = day_stats.sort_values("Profit", ascending=False).iloc[0]
+        worst_day = day_stats.sort_values("Profit", ascending=True).iloc[0]
+        col1, col2 = st.columns(2)
+        col1.metric("Best Day", str(best_day["Day"]), money(float(best_day["Profit"])))
+        col2.metric("Worst Day", str(worst_day["Day"]), money(float(worst_day["Profit"])))
+        st.bar_chart(day_stats.set_index("Day")["Profit"])
+        display = day_stats.copy()
+        display["Profit"] = display["Profit"].map(money)
+        display["Win Rate"] = display["Win Rate"].map(percent)
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+    st.subheader("Time of Day Analysis")
+    session_stats = grouped_trade_analysis(trades, "Trade Session")
+    if not session_stats.empty:
+        st.bar_chart(session_stats.set_index("Trade Session")["Total Profit"])
+        display = session_stats.copy()
+        display["Win Rate"] = display["Win Rate"].map(percent)
+        display["Total Profit"] = display["Total Profit"].map(money)
+        display["Average RR"] = display["Average RR"].map(lambda value: f"{value:.2f}")
+        display["Expectancy"] = display["Expectancy"].map(money)
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+
+def render_psychology_and_quality(trades: pd.DataFrame) -> None:
+    st.subheader("Psychology and Execution Quality")
+    if trades.empty:
+        st.info("Add trades to analyze psychology and quality.")
+        return
+
+    emotion_stats = grouped_trade_analysis(trades, "Emotional State")
+    if not emotion_stats.empty:
+        best = emotion_stats.iloc[0]
+        worst = emotion_stats.iloc[-1]
+        col1, col2 = st.columns(2)
+        col1.metric("Most Profitable Emotion", str(best["Emotional State"]), money(float(best["Total Profit"])))
+        col2.metric("Least Profitable Emotion", str(worst["Emotional State"]), money(float(worst["Total Profit"])))
+        st.bar_chart(emotion_stats.set_index("Emotional State")["Total Profit"])
+
+    col3, col4 = st.columns(2)
+    col3.metric("Average Compliance Score", f"{trades['Compliance Score'].mean():.1f}")
+    col4.metric("Average Trade Quality Score", f"{trades['Trade Quality Score'].mean():.1f}")
+
+    comparison = compliance_comparison(trades)
+    if not comparison.empty:
+        st.caption("High Compliance vs Low Compliance")
+        st.bar_chart(comparison.set_index("Compliance Group")["Total Profit"])
+        display = comparison.copy()
+        display["Total Profit"] = display["Total Profit"].map(money)
+        display["Average Profit"] = display["Average Profit"].map(money)
+        display["Win Rate"] = display["Win Rate"].map(percent)
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+    st.caption("Trade Quality Score vs Profit")
+    quality_chart_data = trades[["Trade Quality Score", "Profit"]].copy()
+    if px is not None and not quality_chart_data.empty:
+        fig = px.scatter(quality_chart_data, x="Trade Quality Score", y="Profit")
+        st.plotly_chart(fig, use_container_width=True)
+    elif not quality_chart_data.empty:
+        st.scatter_chart(quality_chart_data, x="Trade Quality Score", y="Profit")
+
+
+def render_executive_trader_dashboard(trades: pd.DataFrame) -> None:
+    st.subheader("Executive Trader Dashboard")
+    now = pd.Timestamp.today()
+    data = trades.copy()
+    data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+    today = data[data["Date"].dt.date == now.date()] if not data.empty else data
+    ytd = data[data["Date"].dt.year == now.year] if not data.empty else data
+    monthly = data[(data["Date"].dt.year == now.year) & (data["Date"].dt.month == now.month)] if not data.empty else data
+    weekly = data[data["Date"] >= now - pd.Timedelta(days=7)] if not data.empty else data
+    metrics = advanced_trade_metrics(trades)
+    summary = summarize_trades(trades)
+
+    row1 = st.columns(5)
+    row1[0].metric("Today's P&L", money(today["Profit"].sum() if not today.empty else 0.0))
+    row1[1].metric("Weekly P&L", money(weekly["Profit"].sum() if not weekly.empty else 0.0))
+    row1[2].metric("Monthly P&L", money(monthly["Profit"].sum() if not monthly.empty else 0.0))
+    row1[3].metric("YTD P&L", money(ytd["Profit"].sum() if not ytd.empty else 0.0))
+    row1[4].metric("Total Profit", money(summary["total_profit"]))
+
+    row2 = st.columns(5)
+    row2[0].metric("Win Rate", percent(summary["win_rate"]))
+    row2[1].metric("Profit Factor", f"{metrics['profit_factor']:.2f}")
+    row2[2].metric("Average RR", f"{summary['avg_rr']:.2f}")
+    row2[3].metric("Expectancy", money(metrics["expectancy"]))
+    row2[4].metric("Sharpe Ratio", f"{metrics['sharpe_ratio']:.2f}")
+
+    row3 = st.columns(5)
+    row3[0].metric("Largest Winner", money(metrics["largest_winner"]))
+    row3[1].metric("Largest Loser", money(metrics["largest_loser"]))
+    row3[2].metric("Consecutive Wins", f"{metrics['consecutive_wins']:,}")
+    row3[3].metric("Consecutive Losses", f"{metrics['consecutive_losses']:,}")
+    row3[4].metric("Quality Score", f"{trades['Trade Quality Score'].mean() if not trades.empty else 0:.1f}")
+
+    market = fetch_market_snapshot(("SPY", "QQQ", "^VIX"))
+    if not market.empty:
+        st.caption("Market Snapshot")
+        display = market.copy()
+        display["Current Price"] = display["Current Price"].map(lambda value: f"{value:,.2f}")
+        display["Daily Change %"] = display["Daily Change %"].map(percent)
+        st.dataframe(display[["Ticker", "Current Price", "Daily Change %"]], use_container_width=True, hide_index=True)
+
+
+def render_trading_playbook(trades: pd.DataFrame) -> None:
+    st.subheader("Trading Playbook")
+    playbook = read_playbook()
+    with st.expander("Add or Update Setup Playbook", expanded=True):
+        with st.form("playbook_form", clear_on_submit=True):
+            col1, col2 = st.columns([1, 1])
+            setup_name = col1.text_input("Setup Name")
+            screenshot = col2.text_input("Screenshot Path")
+            description = st.text_area("Description")
+            entry_rules = st.text_area("Entry Rules")
+            exit_rules = st.text_area("Exit Rules")
+            risk_rules = st.text_area("Risk Rules")
+            submitted = st.form_submit_button("Save Setup", type="primary")
+            if submitted:
+                if not setup_name.strip():
+                    st.error("Setup name is required.")
+                else:
+                    updated = playbook.copy()
+                    match = updated["Setup Name"].str.lower() == setup_name.strip().lower()
+                    row = {
+                        "Setup Name": setup_name.strip(),
+                        "Description": description,
+                        "Entry Rules": entry_rules,
+                        "Exit Rules": exit_rules,
+                        "Risk Rules": risk_rules,
+                        "Screenshot": screenshot,
+                    }
+                    if match.any():
+                        for column, value in row.items():
+                            updated.loc[match, column] = value
+                    else:
+                        updated = pd.concat([updated, pd.DataFrame([row])], ignore_index=True)
+                    save_playbook(updated)
+                    st.rerun()
+
+    setup_stats = setup_performance(trades)
+    for _, row in playbook.iterrows():
+        stats = setup_stats[setup_stats["Setup"] == row["Setup Name"]]
+        with st.expander(row["Setup Name"]):
+            st.write(row["Description"] or "No description saved.")
+            col1, col2, col3 = st.columns(3)
+            if stats.empty:
+                col1.metric("Win Rate", "0.0%")
+                col2.metric("Average RR", "0.00")
+                col3.metric("Profit", "$0.00")
+            else:
+                stat = stats.iloc[0]
+                col1.metric("Win Rate", percent(float(stat["Win Rate"])))
+                col2.metric("Average RR", f"{float(stat['Avg RR']):.2f}")
+                col3.metric("Profit", money(float(stat["Total Profit"])))
+            st.markdown("**Entry Rules**")
+            st.write(row["Entry Rules"] or "Not defined.")
+            st.markdown("**Exit Rules**")
+            st.write(row["Exit Rules"] or "Not defined.")
+            st.markdown("**Risk Rules**")
+            st.write(row["Risk Rules"] or "Not defined.")
+
+
+def trade_coach_summary(trades: pd.DataFrame, period_days: int | None = None) -> dict[str, object]:
+    if trades.empty:
+        return {
+            "data": trades,
+            "profit": 0.0,
+            "win_rate": 0.0,
+            "expectancy": 0.0,
+            "best_setup": "N/A",
+            "worst_setup": "N/A",
+            "expensive_mistake": "N/A",
+            "best_emotion": "N/A",
+            "weaknesses": ["No trade data available yet."],
+            "strengths": ["Start logging trades consistently."],
+            "trader_score": 0,
+        }
+
+    data = trades.copy()
+    data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+    if period_days is not None:
+        data = data[data["Date"] >= pd.Timestamp.today() - pd.Timedelta(days=period_days)]
+    data = data.dropna(subset=["Date"])
+
+    if data.empty:
+        return trade_coach_summary(pd.DataFrame())
+
+    summary = summarize_trades(data)
+    setup_stats = setup_performance(data)
+    mistake_stats = mistake_analysis(data)
+    emotion_stats = grouped_trade_analysis(data, "Emotional State")
+    compliance = data["Compliance Score"].mean()
+    quality = data["Trade Quality Score"].mean()
+    profit_factor = advanced_trade_metrics(data)["profit_factor"]
+
+    best_setup = str(setup_stats.iloc[0]["Setup"]) if not setup_stats.empty else "N/A"
+    worst_setup = str(setup_stats.iloc[-1]["Setup"]) if not setup_stats.empty else "N/A"
+    expensive_mistake = str(mistake_stats.iloc[0]["Mistake"]) if not mistake_stats.empty and mistake_stats.iloc[0]["Count"] > 0 else "N/A"
+    best_emotion = str(emotion_stats.iloc[0]["Emotional State"]) if not emotion_stats.empty else "N/A"
+
+    strengths = []
+    weaknesses = []
+    if summary["win_rate"] >= 50:
+        strengths.append("Win rate is above 50%.")
+    else:
+        weaknesses.append("Win rate is below 50%; review entry quality and selectivity.")
+    if profit_factor >= 1.5:
+        strengths.append("Profit factor shows a positive edge.")
+    else:
+        weaknesses.append("Profit factor is below 1.5; losses are consuming too much gross profit.")
+    if compliance >= 80:
+        strengths.append("Rule compliance is strong.")
+    else:
+        weaknesses.append("Compliance score is low; reduce rule violations before increasing size.")
+    if quality >= 75:
+        strengths.append("Trade quality score is healthy.")
+    else:
+        weaknesses.append("Trade quality needs improvement through better RR, discipline, and emotional control.")
+    if expensive_mistake != "N/A":
+        weaknesses.append(f"Most expensive mistake: {expensive_mistake}.")
+
+    trader_score = int(round(min(max((summary["win_rate"] * 0.25) + (min(profit_factor, 3) / 3 * 25) + (compliance * 0.25) + (quality * 0.25), 0), 100)))
+
+    return {
+        "data": data,
+        "profit": summary["total_profit"],
+        "win_rate": summary["win_rate"],
+        "expectancy": advanced_trade_metrics(data)["expectancy"],
+        "best_setup": best_setup,
+        "worst_setup": worst_setup,
+        "expensive_mistake": expensive_mistake,
+        "best_emotion": best_emotion,
+        "weaknesses": weaknesses or ["No major weaknesses detected in this period."],
+        "strengths": strengths or ["No clear strengths detected yet; keep building sample size."],
+        "trader_score": trader_score,
+    }
+
+
+def render_ai_trade_coach(trades: pd.DataFrame) -> None:
+    st.subheader("AI Trade Coach")
+    st.caption("Rule-based coach that reviews trade history, grades, mistakes, setups, and psychology.")
+
+    weekly = trade_coach_summary(trades, period_days=7)
+    monthly = trade_coach_summary(trades, period_days=30)
+    overall = trade_coach_summary(trades)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Trader Score", f"{overall['trader_score']}/100")
+    col2.metric("Most Profitable Setup", str(overall["best_setup"]))
+    col3.metric("Most Expensive Mistake", str(overall["expensive_mistake"]))
+
+    st.subheader("Weekly Review")
+    st.write(f"Profit: {money(float(weekly['profit']))} | Win Rate: {percent(float(weekly['win_rate']))} | Expectancy: {money(float(weekly['expectancy']))}")
+    st.markdown("**Strengths**")
+    for item in weekly["strengths"]:
+        st.write(f"- {item}")
+    st.markdown("**Weaknesses**")
+    for item in weekly["weaknesses"]:
+        st.write(f"- {item}")
+
+    st.subheader("Monthly Review")
+    st.write(f"Profit: {money(float(monthly['profit']))} | Win Rate: {percent(float(monthly['win_rate']))} | Expectancy: {money(float(monthly['expectancy']))}")
+    st.write(f"Best setup: {monthly['best_setup']}")
+    st.write(f"Least profitable setup: {monthly['worst_setup']}")
+    st.write(f"Most profitable emotion: {monthly['best_emotion']}")
+
+    st.subheader("Coach Action Plan")
+    if overall["trader_score"] >= 80:
+        st.success("Performance is strong. Focus on consistency, sizing discipline, and only scaling your best setups.")
+    elif overall["trader_score"] >= 60:
+        st.warning("Performance is developing. Focus on eliminating the top mistake and taking only A/B quality trades.")
+    else:
+        st.error("Performance needs stabilization. Reduce size, tighten rules, and rebuild around your best setup.")
+
+def render_dashboard() -> None:
+    st.markdown(
+        """
+        <div class="executive-hero">
+            <h1>Executive Command Center</h1>
+            <p>Andrew Capital Management operating dashboard for capital, trading, real estate, and acquisitions.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    trades = read_trades()
+    assets = read_wealth_accounts()
+    liabilities = read_liabilities()
+    properties = enrich_real_estate_properties(read_real_estate_properties())
+    deals = read_acquisition_deals()
+    snapshots = read_net_worth_snapshots()
+
+    total_assets = assets["Balance"].sum() if not assets.empty else 0.0
+    total_liabilities = liabilities["Balance"].sum() if not liabilities.empty else 0.0
+    net_worth = total_assets - total_liabilities
+    trading_pnl = trades["Profit"].sum() if not trades.empty else 0.0
+    real_estate_equity = properties["Equity"].sum() if not properties.empty else 0.0
+    real_estate_cash_flow = properties["Cash Flow"].sum() if not properties.empty else 0.0
+    acquisition_pipeline_value = deals["Asking Price"].sum() if not deals.empty else 0.0
+
+    st.subheader("Executive KPI Cards")
+    kpi_col1, kpi_col2, kpi_col3, kpi_col4, kpi_col5 = st.columns(5)
+    with kpi_col1:
+        render_kpi_card("Net Worth", money(net_worth), f"Assets {money(total_assets)} | Liabilities {money(total_liabilities)}")
+    with kpi_col2:
+        render_kpi_card("Trading P&L", money(trading_pnl), f"{len(trades):,} logged trades")
+    with kpi_col3:
+        render_kpi_card("Real Estate Equity", money(real_estate_equity), f"{len(properties):,} properties tracked")
+    with kpi_col4:
+        render_kpi_card("Real Estate Cash Flow", money(real_estate_cash_flow), "Annual rent less taxes and insurance")
+    with kpi_col5:
+        render_kpi_card("Acquisition Pipeline", money(acquisition_pipeline_value), f"{len(deals):,} active deals")
+
+    st.divider()
+    st.subheader("Goal Progress Bars")
+    goal_col1, goal_col2 = st.columns(2)
+    with goal_col1:
+        render_goal_progress(
+            "Financial Independence Tracker",
+            net_worth,
+            1_000_000.0,
+            f"{money(net_worth)} toward {money(1_000_000.0)} net worth",
+        )
+        render_goal_progress(
+            "First Rental Property Tracker",
+            float(len(properties[properties["Current Value"] > 0])) if not properties.empty else 0.0,
+            1.0,
+            f"{len(properties[properties['Current Value'] > 0]) if not properties.empty else 0} of 1 income property tracked",
+        )
+        render_goal_progress(
+            "Annual Trading P&L Goal",
+            trading_pnl,
+            100_000.0,
+            f"{money(trading_pnl)} toward {money(100_000.0)} annual P&L",
+        )
+    with goal_col2:
+        closed_deals = int((deals["Status"] == "Closed").sum()) if not deals.empty else 0
+        render_goal_progress(
+            "First Acquisition Tracker",
+            float(closed_deals),
+            1.0,
+            f"{closed_deals} of 1 acquisitions closed",
+        )
+        render_goal_progress(
+            "Real Estate Equity Goal",
+            real_estate_equity,
+            250_000.0,
+            f"{money(real_estate_equity)} toward {money(250_000.0)} real estate equity",
+        )
+        qualified_deals = int(deals["Status"].isin(["NDA Signed", "CIM Received", "Under LOI", "Closed"]).sum()) if not deals.empty else 0
+        render_goal_progress(
+            "Qualified Deal Flow",
+            float(qualified_deals),
+            5.0,
+            f"{qualified_deals} of 5 qualified acquisition targets",
+        )
+
+    st.divider()
+    chart_col1, chart_col2 = st.columns(2)
+    with chart_col1:
+        st.subheader("Capital Command View")
+        command_data = pd.DataFrame(
+            [
+                {"KPI": "Net Worth", "Value": net_worth},
+                {"KPI": "Trading P&L", "Value": trading_pnl},
+                {"KPI": "RE Equity", "Value": real_estate_equity},
+                {"KPI": "RE Cash Flow", "Value": real_estate_cash_flow},
+                {"KPI": "Pipeline Value", "Value": acquisition_pipeline_value},
+            ]
+        )
+        st.bar_chart(command_data.set_index("KPI")["Value"])
+
+    with chart_col2:
+        st.subheader("Net Worth Trajectory")
+        if snapshots.empty:
+            st.info("Save monthly snapshots on the Wealth page to build a net worth trend.")
+        else:
+            trajectory = snapshots.copy()
+            trajectory["Date"] = pd.to_datetime(trajectory["Date"])
+            st.line_chart(trajectory.set_index("Date")["Net Worth"])
+
+    st.divider()
+    insight_col1, insight_col2, insight_col3 = st.columns(3)
+    with insight_col1:
+        st.subheader("Trading Snapshot")
+        render_trade_metrics(trades)
+    with insight_col2:
+        st.subheader("Acquisition Status")
+        if deals.empty:
+            st.info("No acquisition deals saved.")
+        else:
+            st.bar_chart(deals["Status"].value_counts().reindex(DEAL_STATUSES, fill_value=0))
+    with insight_col3:
+        st.subheader("Real Estate Portfolio")
+        if properties.empty:
+            st.info("No properties saved.")
+        else:
+            st.bar_chart(properties.set_index("Property Name")["Equity"])
+
+
+def render_trading_center() -> None:
+    st.title("Trading Center")
+    trades = read_trades()
+    tab0, tab_market, tab1, tab_risk, tab2, tab_playbook, tab_coach, tab3 = st.tabs(
+        [
+            "Executive Trader Dashboard",
+            "Market Command Center",
+            "Trade Entry",
+            "Risk Management",
+            "Analytics",
+            "Trading Playbook",
+            "AI Trade Coach",
+            "History",
+        ]
+    )
+
+    with tab0:
+        render_executive_trader_dashboard(trades)
+
+    with tab_market:
+        render_market_command_center()
+
+    with tab1:
+        st.subheader("New Trade")
+        with st.form("trade_entry_form", clear_on_submit=True):
+            col1, col2, col3 = st.columns(3)
+            trade_date = col1.date_input("Trade Date", value=date.today())
+            ticker = col2.text_input("Ticker").upper().strip()
+            direction = col3.selectbox("Direction", ["Long", "Short"])
+
+            col4, col5, col6 = st.columns(3)
+            setup = col4.selectbox("Setup Type", SETUPS)
+            entry = col5.number_input("Entry Price", min_value=0.0, step=0.01)
+            stop_loss = col6.number_input("Stop Loss", min_value=0.0, step=0.01)
+
+            col7, col8, col9, col10 = st.columns(4)
+            target = col7.number_input("Target Price", min_value=0.0, step=0.01)
+            exit_price = col8.number_input("Exit Price", min_value=0.0, step=0.01)
+            shares = col9.number_input("Shares", min_value=1, value=1, step=1)
+            grade = col10.selectbox("Trade Grade", TRADE_GRADES, index=2)
+
+            col11, col12 = st.columns(2)
+            trade_session = col11.selectbox("Trade Session", TRADE_SESSIONS)
+            emotional_state = col12.selectbox("Emotional State", EMOTIONAL_STATES)
+
+            rr_ratio = calculate_rr(entry, stop_loss, target)
+            profit = calculate_profit(direction, entry, exit_price, shares)
+            st.markdown("Mistake Tracking")
+            mistake_col1, mistake_col2, mistake_col3 = st.columns(3)
+            entered_too_early = mistake_col1.checkbox("Entered Too Early")
+            oversized_position = mistake_col1.checkbox("Oversized Position")
+            revenge_trade = mistake_col1.checkbox("Revenge Trade")
+            ignored_stop = mistake_col2.checkbox("Ignored Stop")
+            chased_entry = mistake_col2.checkbox("Chased Entry")
+            averaged_down = mistake_col2.checkbox("Averaged Down")
+            emotional_trade = mistake_col3.checkbox("Emotional Trade")
+            moved_stop = mistake_col3.checkbox("Moved Stop")
+            no_trade_plan = mistake_col3.checkbox("No Trade Plan")
+
+            st.markdown("Trade Review Screenshots")
+            image_col1, image_col2 = st.columns(2)
+            entry_screenshot = image_col1.file_uploader(
+                "Entry Screenshot",
+                type=["png", "jpg", "jpeg", "webp"],
+                key="entry_screenshot_upload",
+            )
+            exit_screenshot = image_col2.file_uploader(
+                "Exit Screenshot",
+                type=["png", "jpg", "jpeg", "webp"],
+                key="exit_screenshot_upload",
+            )
+            pre_trade_notes = st.text_area("Pre-Trade Notes")
+            post_trade_review = st.text_area("Post-Trade Review")
+            review_col1, review_col2 = st.columns(2)
+            followed_plan = review_col1.selectbox("Did I follow my plan?", ["", "Yes", "No", "Partially"])
+            take_again = review_col2.selectbox("Would I take this trade again?", ["", "Yes", "No", "Only with changes"])
+            what_worked = st.text_area("What worked?")
+            what_failed = st.text_area("What failed?")
+            notes = st.text_area("Notes")
+
+            st.info(f"Risk / Reward Ratio: {rr_ratio:.2f} | Estimated Profit: {money(profit)}")
+            submitted = st.form_submit_button("Save Trade", type="primary")
+
+            if submitted:
+                if not ticker:
+                    st.error("Ticker is required.")
+                elif entry <= 0 or exit_price <= 0:
+                    st.error("Entry price and exit price must be greater than zero.")
+                else:
+                    entry_screenshot_path = save_uploaded_image(entry_screenshot, ticker, "entry")
+                    exit_screenshot_path = save_uploaded_image(exit_screenshot, ticker, "exit")
+                    draft_row = pd.Series(
+                        {
+                            "RR": rr_ratio,
+                            "Grade": grade,
+                            "Emotional State": emotional_state,
+                            "Entered Too Early": entered_too_early,
+                            "Oversized Position": oversized_position,
+                            "Ignored Stop": ignored_stop,
+                            "Chased Entry": chased_entry,
+                            "Revenge Trade": revenge_trade,
+                            "Emotional Trade": emotional_trade,
+                            "Averaged Down": averaged_down,
+                            "Moved Stop": moved_stop,
+                            "No Trade Plan": no_trade_plan,
+                        }
+                    )
+                    compliance_score = calculate_compliance_score(draft_row)
+                    quality_score = calculate_trade_quality_score(draft_row)
+                    new_trade = pd.DataFrame(
+                        [
+                            {
+                                "Date": str(trade_date),
+                                "Ticker": ticker,
+                                "Direction": direction,
+                                "Setup": setup,
+                                "Entry": entry,
+                                "Stop": stop_loss,
+                                "Target": target,
+                                "Exit": exit_price,
+                                "Shares": shares,
+                                "Profit": profit,
+                                "RR": rr_ratio,
+                                "Grade": grade,
+                                "Trade Session": trade_session,
+                                "Emotional State": emotional_state,
+                                "Entered Too Early": entered_too_early,
+                                "Oversized Position": oversized_position,
+                                "Ignored Stop": ignored_stop,
+                                "Chased Entry": chased_entry,
+                                "Revenge Trade": revenge_trade,
+                                "Emotional Trade": emotional_trade,
+                                "Averaged Down": averaged_down,
+                                "Moved Stop": moved_stop,
+                                "No Trade Plan": no_trade_plan,
+                                "Compliance Score": compliance_score,
+                                "Trade Quality Score": quality_score,
+                                "Entry Screenshot": entry_screenshot_path,
+                                "Exit Screenshot": exit_screenshot_path,
+                                "Pre-Trade Notes": pre_trade_notes,
+                                "Post-Trade Review": post_trade_review,
+                                "Followed Plan": followed_plan,
+                                "What Worked": what_worked,
+                                "What Failed": what_failed,
+                                "Take Again": take_again,
+                                "Notes": notes,
+                            }
+                        ]
+                    )
+                    save_trades(pd.concat([trades[TRADE_COLUMNS], new_trade], ignore_index=True))
+                    st.success("Trade saved.")
+                    st.rerun()
+
+    with tab_risk:
+        render_risk_management()
+
+    with tab2:
+        st.subheader("Trading Analytics")
+        filtered = filter_trade_history(trades, "trading_analytics")
+        render_trade_metrics(filtered)
+        render_advanced_trade_metrics(filtered)
+        st.subheader("Equity Curve")
+        if filtered.empty:
+            st.info("No trades available for the selected filters.")
+        else:
+            st.line_chart(filtered.sort_values("Date")["Profit"].cumsum())
+        render_strategy_intelligence(filtered)
+        render_grade_performance(filtered)
+        render_mistake_analysis(filtered)
+        render_psychology_and_quality(filtered)
+
+    with tab_playbook:
+        render_trading_playbook(trades)
+
+    with tab_coach:
+        render_ai_trade_coach(trades)
+
+    with tab3:
+        st.subheader("Trade History")
+        history = filter_trade_history(trades, "trade_history")
+        st.caption(f"Total Trades: {len(history)}")
+        if history.empty:
+            st.info("No trades match the selected filters.")
+        else:
+            st.dataframe(format_trade_table(history), use_container_width=True, hide_index=True)
+            render_trade_screenshots(history)
+
+        csv_data = trades[TRADE_COLUMNS].to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download Trade History CSV",
+            data=csv_data,
+            file_name="trades.csv",
+            mime="text/csv",
+        )
+
+
+def render_wealth_dashboard() -> None:
+    st.title("Wealth Dashboard V1")
+    st.caption("Complete net worth tracker for assets, liabilities, and account-level balances.")
+
+    assets = read_wealth_accounts()
+    liabilities = read_liabilities()
+
+    with st.expander("Add or Update Asset Account", expanded=True):
+        with st.form("asset_form", clear_on_submit=True):
+            col1, col2, col3 = st.columns([1.3, 1, 1])
+            account = col1.text_input("Asset Account Name")
+            account_type = col2.selectbox("Asset Type", ACCOUNT_TYPES)
+            balance = col3.number_input("Asset Balance", min_value=0.0, step=100.0)
+            submitted = st.form_submit_button("Save Asset", type="primary")
+
+            if submitted:
+                if not account.strip():
+                    st.error("Asset account name is required.")
+                else:
+                    updated = assets.copy()
+                    match = updated["Account"].str.lower() == account.strip().lower()
+                    if match.any():
+                        updated.loc[match, "Account"] = account.strip()
+                        updated.loc[match, "Type"] = account_type
+                        updated.loc[match, "Balance"] = balance
+                    else:
+                        updated = pd.concat(
+                            [
+                                updated,
+                                pd.DataFrame([{"Account": account.strip(), "Type": account_type, "Balance": balance}]),
+                            ],
+                            ignore_index=True,
+                        )
+                    save_wealth_accounts(updated)
+                    st.success("Asset account saved.")
+                    st.rerun()
+
+    with st.expander("Add or Update Liability Account", expanded=False):
+        with st.form("liability_form", clear_on_submit=True):
+            col1, col2, col3 = st.columns([1.3, 1, 1])
+            liability = col1.text_input("Liability Account Name")
+            liability_type = col2.selectbox("Liability Type", LIABILITY_TYPES)
+            balance = col3.number_input("Liability Balance", min_value=0.0, step=100.0)
+            submitted = st.form_submit_button("Save Liability", type="primary")
+
+            if submitted:
+                if not liability.strip():
+                    st.error("Liability account name is required.")
+                else:
+                    updated = liabilities.copy()
+                    match = updated["Account"].str.lower() == liability.strip().lower()
+                    if match.any():
+                        updated.loc[match, "Account"] = liability.strip()
+                        updated.loc[match, "Type"] = liability_type
+                        updated.loc[match, "Balance"] = balance
+                    else:
+                        updated = pd.concat(
+                            [
+                                updated,
+                                pd.DataFrame([{"Account": liability.strip(), "Type": liability_type, "Balance": balance}]),
+                            ],
+                            ignore_index=True,
+                        )
+                    save_liabilities(updated)
+                    st.success("Liability account saved.")
+                    st.rerun()
+
+    assets = read_wealth_accounts()
+    liabilities = read_liabilities()
+    assets_by_type = assets.groupby("Type", as_index=False)["Balance"].sum()
+    liabilities_by_type = liabilities.groupby("Type", as_index=False)["Balance"].sum()
+    total_assets = assets["Balance"].sum()
+    total_liabilities = liabilities["Balance"].sum()
+    net_worth = total_assets - total_liabilities
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Assets", money(total_assets))
+    col2.metric("Total Liabilities", money(total_liabilities))
+    col3.metric("Net Worth", money(net_worth))
+
+    if st.button("Save Monthly Snapshot", type="primary"):
+        save_monthly_net_worth_snapshot(net_worth)
+        st.success(f"Saved monthly net worth snapshot for {date.today().strftime('%B %Y')}.")
+        st.rerun()
+
+    st.subheader("Asset Accounts")
+    asset_metric_columns = st.columns(4)
+    for index, account_type in enumerate(ACCOUNT_TYPES):
+        value = assets_by_type.loc[assets_by_type["Type"] == account_type, "Balance"].sum()
+        asset_metric_columns[index % 4].metric(account_type, money(value))
+
+    st.subheader("Liability Accounts")
+    liability_metric_columns = st.columns(3)
+    for index, liability_type in enumerate(LIABILITY_TYPES):
+        value = liabilities_by_type.loc[liabilities_by_type["Type"] == liability_type, "Balance"].sum()
+        liability_metric_columns[index].metric(liability_type, money(value))
+
+    st.divider()
+    chart_col1, chart_col2 = st.columns(2)
+    with chart_col1:
+        st.subheader("Asset Allocation Pie Chart")
+        pie_data = assets_by_type[assets_by_type["Balance"] > 0].copy()
+        if pie_data.empty:
+            st.info("Add asset balances to see allocation.")
+        else:
+            pie_chart = (
+                alt.Chart(pie_data)
+                .mark_arc(innerRadius=45)
+                .encode(
+                    theta=alt.Theta(field="Balance", type="quantitative"),
+                    color=alt.Color(field="Type", type="nominal", title="Asset Type"),
+                    tooltip=[
+                        alt.Tooltip("Type:N", title="Asset Type"),
+                        alt.Tooltip("Balance:Q", title="Balance", format="$,.2f"),
+                    ],
+                )
+            )
+            st.altair_chart(pie_chart, use_container_width=True)
+
+    with chart_col2:
+        st.subheader("Net Worth Breakdown")
+        breakdown = pd.DataFrame(
+            [
+                {"Category": "Total Assets", "Amount": total_assets},
+                {"Category": "Total Liabilities", "Amount": -total_liabilities},
+                {"Category": "Net Worth", "Amount": net_worth},
+            ]
+        )
+        st.bar_chart(breakdown.set_index("Category")["Amount"])
+
+    st.divider()
+    st.subheader("Monthly Net Worth Tracking")
+    snapshots = read_net_worth_snapshots()
+    stats = net_worth_snapshot_stats(snapshots)
+
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+    metric_col1.metric("Highest Net Worth", money(stats["highest"]))
+    metric_col2.metric("Lowest Net Worth", money(stats["lowest"]))
+    metric_col3.metric("Monthly Change", money(stats["monthly_change"]))
+    metric_col4.metric("Annualized Growth", percent(stats["annualized_growth"]))
+
+    if snapshots.empty:
+        st.info("No monthly snapshots saved yet. Click Save Monthly Snapshot to begin tracking net worth over time.")
+    else:
+        chart_snapshots = snapshots.copy()
+        chart_snapshots["Date"] = pd.to_datetime(chart_snapshots["Date"])
+        chart_snapshots = chart_snapshots.sort_values("Date")
+        chart_snapshots["Growth Trend"] = chart_snapshots["Net Worth"].diff().fillna(0.0)
+
+        history_col1, history_col2 = st.columns(2)
+        with history_col1:
+            st.subheader("Net Worth Over Time")
+            st.line_chart(chart_snapshots.set_index("Date")["Net Worth"])
+        with history_col2:
+            st.subheader("Growth Trend")
+            st.line_chart(chart_snapshots.set_index("Date")["Growth Trend"])
+
+        display_snapshots = chart_snapshots.copy()
+        display_snapshots["Date"] = display_snapshots["Date"].dt.date
+        display_snapshots["Net Worth"] = display_snapshots["Net Worth"].map(money)
+        display_snapshots["Growth Trend"] = display_snapshots["Growth Trend"].map(money)
+        st.dataframe(display_snapshots, use_container_width=True, hide_index=True)
+
+    col4, col5 = st.columns(2)
+    with col4:
+        st.subheader("Assets")
+        display_assets = assets.copy()
+        display_assets["Balance"] = display_assets["Balance"].map(money)
+        st.dataframe(display_assets, use_container_width=True, hide_index=True)
+
+    with col5:
+        st.subheader("Liabilities")
+        display_liabilities = liabilities.copy()
+        display_liabilities["Balance"] = display_liabilities["Balance"].map(money)
+        st.dataframe(display_liabilities, use_container_width=True, hide_index=True)
+
+
+def monthly_payment(principal: float, annual_rate: float, years: int) -> float:
+    monthly_rate = annual_rate / 100 / 12
+    periods = years * 12
+    if principal <= 0 or periods <= 0:
+        return 0.0
+    if monthly_rate == 0:
+        return principal / periods
+    return principal * monthly_rate * (1 + monthly_rate) ** periods / ((1 + monthly_rate) ** periods - 1)
+
+
+def render_real_estate_analyzer() -> None:
+    st.title("Real Estate Portfolio")
+    st.caption("Track multiple properties, equity, rent, cash flow, and cap rate in one portfolio view.")
+
+    properties = read_real_estate_properties()
+
+    with st.expander("Add or Update Property", expanded=True):
+        with st.form("real_estate_property_form", clear_on_submit=True):
+            col1, col2, col3 = st.columns([1.4, 1, 1])
+            property_name = col1.text_input("Property Name")
+            purchase_price = col2.number_input("Purchase Price", min_value=0.0, step=5000.0)
+            current_value = col3.number_input("Current Value", min_value=0.0, step=5000.0)
+
+            col4, col5, col6, col7 = st.columns(4)
+            monthly_rent = col4.number_input("Monthly Rent", min_value=0.0, step=100.0)
+            mortgage_balance = col5.number_input("Mortgage Balance", min_value=0.0, step=5000.0)
+            annual_taxes = col6.number_input("Annual Taxes", min_value=0.0, step=100.0)
+            insurance = col7.number_input("Insurance", min_value=0.0, step=100.0)
+
+            submitted = st.form_submit_button("Save Property", type="primary")
+            if submitted:
+                if not property_name.strip():
+                    st.error("Property name is required.")
+                else:
+                    updated = properties.copy()
+                    match = updated["Property Name"].str.lower() == property_name.strip().lower()
+                    row = {
+                        "Property Name": property_name.strip(),
+                        "Purchase Price": purchase_price,
+                        "Current Value": current_value,
+                        "Monthly Rent": monthly_rent,
+                        "Mortgage Balance": mortgage_balance,
+                        "Annual Taxes": annual_taxes,
+                        "Insurance": insurance,
+                    }
+                    if match.any():
+                        for column, value in row.items():
+                            updated.loc[match, column] = value
+                    else:
+                        updated = pd.concat([updated, pd.DataFrame([row])], ignore_index=True)
+                    save_real_estate_properties(updated)
+                    st.success("Property saved.")
+                    st.rerun()
+
+    properties = enrich_real_estate_properties(read_real_estate_properties())
+    total_portfolio_value = properties["Current Value"].sum() if not properties.empty else 0.0
+    total_equity = properties["Equity"].sum() if not properties.empty else 0.0
+    total_cash_flow = properties["Cash Flow"].sum() if not properties.empty else 0.0
+    average_cap_rate = properties["Cap Rate"].mean() if not properties.empty else 0.0
+
+    col8, col9, col10, col11 = st.columns(4)
+    col8.metric("Total Portfolio Value", money(total_portfolio_value))
+    col9.metric("Equity", money(total_equity))
+    col10.metric("Cash Flow", money(total_cash_flow))
+    col11.metric("Average Cap Rate", percent(average_cap_rate))
+
+    st.divider()
+    chart_col1, chart_col2 = st.columns(2)
+    with chart_col1:
+        st.subheader("Portfolio Value")
+        if properties.empty:
+            st.info("Add properties to see portfolio value.")
+        else:
+            st.bar_chart(properties.set_index("Property Name")["Current Value"])
+    with chart_col2:
+        st.subheader("Equity by Property")
+        if properties.empty:
+            st.info("Add properties to see property equity.")
+        else:
+            st.bar_chart(properties.set_index("Property Name")["Equity"])
+
+    st.subheader("Property Portfolio")
+    if properties.empty:
+        st.info("No properties saved yet.")
+    else:
+        display = properties.copy()
+        for column in [
+            "Purchase Price",
+            "Current Value",
+            "Monthly Rent",
+            "Mortgage Balance",
+            "Annual Taxes",
+            "Insurance",
+            "Equity",
+            "Annual Rent",
+            "Cash Flow",
+        ]:
+            display[column] = display[column].map(money)
+        display["Cap Rate"] = display["Cap Rate"].map(percent)
+        st.dataframe(display, use_container_width=True, hide_index=True)
+
+
+def render_acquisition_analyzer() -> None:
+    st.title("Business Acquisition Analyzer")
+    st.caption("Track acquisition targets from lead through close, then evaluate individual deal economics.")
+
+    deals = read_acquisition_deals()
+
+    with st.expander("Add or Update Deal", expanded=True):
+        with st.form("acquisition_deal_form", clear_on_submit=True):
+            col1, col2, col3 = st.columns([1.3, 1, 1])
+            company_name = col1.text_input("Company Name")
+            industry = col2.text_input("Industry")
+            status = col3.selectbox("Status", DEAL_STATUSES)
+
+            col4, col5, col6 = st.columns(3)
+            revenue = col4.number_input("Revenue", min_value=0.0, step=10000.0, key="pipeline_revenue")
+            ebitda = col5.number_input("EBITDA", min_value=0.0, step=5000.0, key="pipeline_ebitda")
+            asking_price = col6.number_input("Asking Price", min_value=0.0, step=10000.0, key="pipeline_asking_price")
+            multiple = asking_price / ebitda if ebitda else 0.0
+            st.info(f"Calculated Multiple: {multiple:.2f}x")
+
+            submitted = st.form_submit_button("Save Deal", type="primary")
+            if submitted:
+                if not company_name.strip():
+                    st.error("Company name is required.")
+                else:
+                    updated = deals.copy()
+                    match = updated["Company Name"].str.lower() == company_name.strip().lower()
+                    row = {
+                        "Company Name": company_name.strip(),
+                        "Industry": industry.strip() or "Uncategorized",
+                        "Revenue": revenue,
+                        "EBITDA": ebitda,
+                        "Asking Price": asking_price,
+                        "Multiple": multiple,
+                        "Status": status,
+                    }
+                    if match.any():
+                        for column, value in row.items():
+                            updated.loc[match, column] = value
+                    else:
+                        updated = pd.concat([updated, pd.DataFrame([row])], ignore_index=True)
+                    save_acquisition_deals(updated)
+                    st.success("Deal saved.")
+                    st.rerun()
+
+    deals = read_acquisition_deals()
+    metrics = acquisition_pipeline_metrics(deals)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Deals Reviewed", f"{metrics['deals_reviewed']:,}")
+    col2.metric("Deals Qualified", f"{metrics['deals_qualified']:,}")
+    col3.metric("Average Multiple", f"{metrics['average_multiple']:.2f}x")
+    col4.metric("Total Pipeline Value", money(metrics["total_pipeline_value"]))
+
+    st.subheader("Deal Pipeline")
+    if deals.empty:
+        st.info("No acquisition deals saved yet.")
+    else:
+        display_deals = deals.copy()
+        for column in ["Revenue", "EBITDA", "Asking Price"]:
+            display_deals[column] = display_deals[column].map(money)
+        display_deals["Multiple"] = display_deals["Multiple"].map(lambda value: f"{value:.2f}x")
+        st.dataframe(display_deals, use_container_width=True, hide_index=True)
+
+        chart_col1, chart_col2 = st.columns(2)
+        with chart_col1:
+            st.subheader("Deals by Status")
+            status_counts = deals["Status"].value_counts().reindex(DEAL_STATUSES, fill_value=0)
+            st.bar_chart(status_counts)
+        with chart_col2:
+            st.subheader("Deals by Industry")
+            industry_counts = deals["Industry"].replace("", "Uncategorized").value_counts()
+            st.bar_chart(industry_counts)
+
+    st.divider()
+    st.subheader("Acquisition Valuation Calculator")
+    col1, col2 = st.columns(2)
+    with col1:
+        asking_price = st.number_input("Asking Price", min_value=0.0, value=500000.0, step=10000.0, key="calculator_asking_price")
+        annual_revenue = st.number_input("Annual Revenue", min_value=0.0, value=900000.0, step=10000.0, key="calculator_annual_revenue")
+        gross_margin_pct = st.number_input("Gross Margin %", min_value=0.0, max_value=100.0, value=42.0, key="calculator_gross_margin")
+        operating_expenses = st.number_input("Operating Expenses", min_value=0.0, value=260000.0, step=5000.0, key="calculator_operating_expenses")
+    with col2:
+        owner_addbacks = st.number_input("Owner Add-Backs", min_value=0.0, value=45000.0, step=5000.0, key="calculator_owner_addbacks")
+        growth_rate_pct = st.number_input("Expected Growth %", min_value=-100.0, value=6.0, step=0.5, key="calculator_growth_rate")
+        target_multiple = st.number_input("Target SDE Multiple", min_value=0.0, value=3.0, step=0.25, key="calculator_target_multiple")
+
+    gross_profit = annual_revenue * gross_margin_pct / 100
+    sde = gross_profit - operating_expenses + owner_addbacks
+    implied_multiple = asking_price / sde if sde else 0.0
+    target_value = sde * target_multiple
+    next_year_revenue = annual_revenue * (1 + growth_rate_pct / 100)
+
+    col3, col4, col5, col6 = st.columns(4)
+    col3.metric("SDE", money(sde))
+    col4.metric("Implied Multiple", f"{implied_multiple:.2f}x")
+    col5.metric("Target Value", money(target_value))
+    col6.metric("Next-Year Revenue", money(next_year_revenue))
+
+    if sde <= 0:
+        st.warning("SDE is zero or negative. Review the assumptions before moving forward.")
+    elif implied_multiple <= target_multiple:
+        st.success("The asking price is at or below the target multiple.")
+    else:
+        st.info("The asking price is above the target multiple.")
+
+    st.divider()
+    st.subheader("SBA Acquisition Financing Analysis")
+    sba_col1, sba_col2 = st.columns(2)
+    with sba_col1:
+        sba_purchase_price = st.number_input(
+            "Purchase Price",
+            min_value=0.0,
+            value=float(asking_price),
+            step=10000.0,
+            key="sba_purchase_price",
+        )
+        down_payment_pct = st.number_input(
+            "Down Payment %",
+            min_value=0.0,
+            max_value=100.0,
+            value=10.0,
+            step=1.0,
+            key="sba_down_payment_pct",
+        )
+    with sba_col2:
+        sba_interest_rate = st.number_input(
+            "SBA Interest Rate",
+            min_value=0.0,
+            value=10.5,
+            step=0.25,
+            key="sba_interest_rate",
+        )
+        loan_term = st.number_input(
+            "Loan Term",
+            min_value=1,
+            value=10,
+            step=1,
+            key="sba_loan_term",
+        )
+
+    down_payment = sba_purchase_price * down_payment_pct / 100
+    loan_amount = max(sba_purchase_price - down_payment, 0.0)
+    sba_monthly_payment = monthly_payment(loan_amount, sba_interest_rate, loan_term)
+    annual_debt_service = sba_monthly_payment * 12
+    total_interest_paid = max((sba_monthly_payment * loan_term * 12) - loan_amount, 0.0)
+    dscr = sde / annual_debt_service if annual_debt_service else 0.0
+    cash_flow_after_debt = sde - annual_debt_service
+
+    sba_metric1, sba_metric2, sba_metric3, sba_metric4 = st.columns(4)
+    sba_metric1.metric("Loan Amount", money(loan_amount))
+    sba_metric2.metric("Monthly Payment", money(sba_monthly_payment))
+    sba_metric3.metric("Annual Debt Service", money(annual_debt_service))
+    sba_metric4.metric("Total Interest Paid", money(total_interest_paid))
+
+    sba_metric5, sba_metric6 = st.columns(2)
+    sba_metric5.metric("DSCR", f"{dscr:.2f}x")
+    sba_metric6.metric("Cash Flow After Debt", money(cash_flow_after_debt))
+
+    if annual_debt_service <= 0:
+        st.info("Enter a purchase price and loan terms to calculate SBA financing metrics.")
+    elif dscr >= 1.50:
+        st.success("Strong SBA candidate: DSCR is comfortably above lender coverage thresholds.")
+    elif dscr >= 1.25:
+        st.success("Acceptable SBA candidate: DSCR meets a typical minimum coverage target.")
+    elif dscr >= 1.00:
+        st.warning("Thin coverage: DSCR is positive but may be too tight for SBA approval without stronger cash flow or more equity.")
+    else:
+        st.error("Weak financing fit: DSCR is below 1.00, meaning projected cash flow does not cover annual debt service.")
+
+
+def score_capital_opportunities(
+    available_capital: float,
+    target_return: float,
+    risk_tolerance: str,
+    investment_horizon: str,
+) -> pd.DataFrame:
+    risk_scores = {"Low": 30, "Medium": 60, "High": 90}
+    horizon_scores = {"Short-Term": 90, "Medium-Term": 65, "Long-Term": 40}
+    desired_risk = risk_scores.get(risk_tolerance, 60)
+    desired_liquidity = horizon_scores.get(investment_horizon, 65)
+
+    opportunities = [
+        {
+            "Opportunity": "Trading",
+            "Expected ROI": 18.0,
+            "Risk Level": 85,
+            "Liquidity": 95,
+            "Time Requirement": 85,
+            "Scalability": 55,
+            "Passive Income Potential": 10,
+        },
+        {
+            "Opportunity": "Brokerage Investing",
+            "Expected ROI": 9.0,
+            "Risk Level": 45,
+            "Liquidity": 90,
+            "Time Requirement": 20,
+            "Scalability": 80,
+            "Passive Income Potential": 35,
+        },
+        {
+            "Opportunity": "Retirement Accounts",
+            "Expected ROI": 8.0,
+            "Risk Level": 35,
+            "Liquidity": 25,
+            "Time Requirement": 15,
+            "Scalability": 70,
+            "Passive Income Potential": 30,
+        },
+        {
+            "Opportunity": "Real Estate Investments",
+            "Expected ROI": 14.0,
+            "Risk Level": 60,
+            "Liquidity": 35,
+            "Time Requirement": 55,
+            "Scalability": 75,
+            "Passive Income Potential": 85,
+        },
+        {
+            "Opportunity": "Business Acquisitions",
+            "Expected ROI": 28.0,
+            "Risk Level": 75,
+            "Liquidity": 20,
+            "Time Requirement": 80,
+            "Scalability": 95,
+            "Passive Income Potential": 75,
+        },
+        {
+            "Opportunity": "Cash",
+            "Expected ROI": 4.5,
+            "Risk Level": 5,
+            "Liquidity": 100,
+            "Time Requirement": 5,
+            "Scalability": 20,
+            "Passive Income Potential": 15,
+        },
+    ]
+
+    rows = []
+    for item in opportunities:
+        expected_return_score = min(item["Expected ROI"] / max(target_return, 1) * 100, 100)
+        risk_fit = max(0, 100 - abs(item["Risk Level"] - desired_risk))
+        liquidity_fit = max(0, 100 - abs(item["Liquidity"] - desired_liquidity))
+        time_score = 100 - item["Time Requirement"]
+        capital_fit = 100
+        if item["Opportunity"] in ["Real Estate Investments", "Business Acquisitions"] and available_capital < 50000:
+            capital_fit = 65
+        if item["Opportunity"] == "Cash" and target_return > 8:
+            capital_fit = 45
+
+        score = (
+            expected_return_score * 0.30
+            + risk_fit * 0.20
+            + liquidity_fit * 0.15
+            + time_score * 0.10
+            + item["Scalability"] * 0.15
+            + item["Passive Income Potential"] * 0.10
+        ) * (capital_fit / 100)
+
+        recommendation = "Prioritize" if score >= 80 else "Consider" if score >= 65 else "Monitor" if score >= 50 else "Deprioritize"
+        rows.append(
+            {
+                "Opportunity": item["Opportunity"],
+                "Score": round(score, 1),
+                "Expected ROI": item["Expected ROI"],
+                "Risk Level": "High" if item["Risk Level"] >= 70 else "Medium" if item["Risk Level"] >= 35 else "Low",
+                "Liquidity": "High" if item["Liquidity"] >= 70 else "Medium" if item["Liquidity"] >= 35 else "Low",
+                "Recommendation": recommendation,
+                "Time Requirement": item["Time Requirement"],
+                "Scalability": item["Scalability"],
+                "Passive Income Potential": item["Passive Income Potential"],
+            }
+        )
+
+    return pd.DataFrame(rows).sort_values("Score", ascending=False)
+
+
+def render_executive_decision_engine() -> None:
+    st.markdown(
+        """
+        <div class="executive-hero">
+            <h1>Executive Decision Engine</h1>
+            <p>Ranks the highest ROI use of capital across trading, investing, real estate, acquisitions, retirement, and cash.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    input_col1, input_col2, input_col3, input_col4 = st.columns(4)
+    available_capital = input_col1.number_input("Available Capital", min_value=0.0, value=50000.0, step=1000.0)
+    target_return = input_col2.number_input("Target Return", min_value=0.0, value=15.0, step=0.5)
+    risk_tolerance = input_col3.selectbox("Risk Tolerance", ["Low", "Medium", "High"], index=1)
+    investment_horizon = input_col4.selectbox("Investment Horizon", ["Short-Term", "Medium-Term", "Long-Term"], index=1)
+
+    leaderboard = score_capital_opportunities(available_capital, target_return, risk_tolerance, investment_horizon)
+    top = leaderboard.iloc[0]
+
+    st.subheader("Executive KPI Cards")
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    with kpi1:
+        render_kpi_card("Highest Ranked Opportunity", str(top["Opportunity"]), f"Score {top['Score']:.1f}/100")
+    with kpi2:
+        render_kpi_card("Expected Return", percent(float(top["Expected ROI"])), "Projected annualized ROI")
+    with kpi3:
+        render_kpi_card("Risk Rating", str(top["Risk Level"]), f"Tolerance: {risk_tolerance}")
+    with kpi4:
+        render_kpi_card("Capital Available", money(available_capital), f"Horizon: {investment_horizon}")
+
+    st.subheader("Best Use of Capital Recommendation")
+    st.success(
+        f"{top['Opportunity']} ranks highest due to its projected return, risk fit, liquidity fit, scalability, and passive income potential."
+    )
+
+    st.subheader("Opportunity Leaderboard")
+    display = leaderboard[["Opportunity", "Score", "Expected ROI", "Risk Level", "Liquidity", "Recommendation"]].copy()
+    display["Expected ROI"] = display["Expected ROI"].map(percent)
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+    chart_col1, chart_col2 = st.columns(2)
+    with chart_col1:
+        st.subheader("Opportunity Scores")
+        if px is not None:
+            fig = px.bar(
+                leaderboard,
+                x="Opportunity",
+                y="Score",
+                color="Recommendation",
+                range_y=[0, 100],
+                template="plotly_dark",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.bar_chart(leaderboard.set_index("Opportunity")["Score"])
+
+    with chart_col2:
+        st.subheader("ROI vs Risk")
+        if px is not None:
+            risk_numeric = leaderboard["Risk Level"].map({"Low": 25, "Medium": 55, "High": 85})
+            scatter_data = leaderboard.assign(Risk=risk_numeric)
+            fig = px.scatter(
+                scatter_data,
+                x="Risk",
+                y="Expected ROI",
+                size="Score",
+                color="Opportunity",
+                hover_name="Opportunity",
+                template="plotly_dark",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.scatter_chart(leaderboard, x="Score", y="Expected ROI")
+
+
+def render_sidebar() -> str:
+    st.sidebar.title(APP_NAME)
+    return st.sidebar.selectbox(
+        "Navigation",
+        ["Dashboard", "Trading", "Wealth", "Real Estate", "Acquisitions", "Executive Decision Engine"],
+    )
+
+
+def main() -> None:
+    configure_page()
+    initialize_files()
+    page = render_sidebar()
+
+    if page == "Dashboard":
+        render_dashboard()
+    elif page == "Trading":
+        render_trading_center()
+    elif page == "Wealth":
+        render_wealth_dashboard()
+    elif page == "Real Estate":
+        render_real_estate_analyzer()
+    elif page == "Acquisitions":
+        render_acquisition_analyzer()
+    elif page == "Executive Decision Engine":
+        render_executive_decision_engine()
+
+
+if __name__ == "__main__":
+    main()
