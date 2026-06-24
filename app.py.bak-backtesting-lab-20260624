@@ -12,7 +12,6 @@ import streamlit as st
 
 from pages.acquisitions import render_acquisition_analyzer
 from pages.ai_cio import render_ai_chief_investment_officer
-from pages.backtesting_lab import render_backtesting_engine_lab
 from pages.dashboard import render_dashboard
 from pages.executive_decision import render_executive_decision_engine
 from pages.executive_reporting import render_executive_reporting_center
@@ -29,7 +28,6 @@ PAGES = {
     "Dashboard": render_dashboard,
     "Trading": render_trading_center,
     "Trade Analyzer": render_trade_analyzer,
-    "Backtesting Lab": render_backtesting_engine_lab,
     "Trading Academy": render_trading_academy,
     "Wealth": render_wealth_dashboard,
     "Real Estate": render_real_estate_analyzer,

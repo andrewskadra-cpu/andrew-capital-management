@@ -1129,28 +1129,6 @@ def save_backtesting_trades(df: pd.DataFrame) -> None:
         st.error("Could not save backtesting trades. Close backtesting_lab_trades.csv if it is open, then try again.")
 
 
-def empty_backtest_result(message: str, starting_capital: float, debug: dict[str, object] | None = None) -> dict[str, object]:
-    return {
-        "success": False,
-        "message": message,
-        "debug": debug or {},
-        "history": pd.DataFrame(),
-        "trades": pd.DataFrame(),
-        "equity": pd.DataFrame(),
-        "metrics": backtest_metrics(pd.DataFrame(), starting_capital),
-    }
-
-
-def validate_backtest_history(data: pd.DataFrame) -> tuple[bool, str]:
-    required_columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
-    if data is None or data.empty:
-        return False, "No historical data available for selected ticker/date range."
-    missing_columns = [column for column in required_columns if column not in data.columns]
-    if missing_columns:
-        return False, f"Historical data is missing required columns: {', '.join(missing_columns)}."
-    return True, ""
-
-
 def fetch_backtest_history(ticker: str, timeframe: str, start_date: date, end_date: date) -> pd.DataFrame:
     if yf is None or not ticker:
         return pd.DataFrame()
@@ -1181,9 +1159,6 @@ def fetch_backtest_history(ticker: str, timeframe: str, start_date: date, end_da
 
 
 def add_backtest_indicators(data: pd.DataFrame) -> pd.DataFrame:
-    is_valid, _ = validate_backtest_history(data)
-    if not is_valid:
-        return pd.DataFrame()
     enriched = data.copy()
     enriched["SMA20"] = enriched["Close"].rolling(20).mean()
     enriched["SMA50"] = enriched["Close"].rolling(50).mean()
@@ -1272,32 +1247,10 @@ def run_backtesting_engine(
     filters: list[str],
     history: pd.DataFrame | None = None,
 ) -> dict[str, object]:
-    debug = {
-        "ticker": ticker,
-        "start_date": str(start_date),
-        "end_date": str(end_date),
-        "rows_returned": 0,
-        "source_used": "provided history" if history is not None else "yfinance",
-    }
-    try:
-        raw = history.copy() if history is not None else fetch_backtest_history(ticker, timeframe, start_date, end_date)
-    except Exception as exc:
-        debug["error"] = str(exc)
-        return empty_backtest_result("Unable to retrieve historical market data for this request.", starting_capital, debug)
-
-    debug["rows_returned"] = int(len(raw)) if raw is not None else 0
-    is_valid, validation_message = validate_backtest_history(raw)
-    if not is_valid:
-        return empty_backtest_result(validation_message, starting_capital, debug)
-
+    raw = history.copy() if history is not None else fetch_backtest_history(ticker, timeframe, start_date, end_date)
+    if raw.empty:
+        return {"history": pd.DataFrame(), "trades": pd.DataFrame(), "equity": pd.DataFrame(), "metrics": backtest_metrics(pd.DataFrame(), starting_capital)}
     data = add_backtest_indicators(raw)
-    debug["rows_after_indicators"] = int(len(data)) if data is not None else 0
-    is_valid, validation_message = validate_backtest_history(data)
-    if not is_valid:
-        return empty_backtest_result("No usable historical data remained after indicator calculations. Try a longer date range.", starting_capital, debug)
-    if len(data) < 3:
-        return empty_backtest_result("Not enough historical data to run a backtest after validation.", starting_capital, debug)
-
     equity = float(starting_capital)
     peak = equity
     trade_rows = []
@@ -1384,15 +1337,7 @@ def run_backtesting_engine(
         trades["Strategy Score"] = score
     metrics["Strategy Grade"] = grade
     metrics["Recommendation"] = backtest_recommendation(grade, metrics)
-    return {
-        "success": True,
-        "message": "Backtest completed successfully.",
-        "debug": debug,
-        "history": data,
-        "trades": trades,
-        "equity": pd.DataFrame(equity_rows),
-        "metrics": metrics,
-    }
+    return {"history": data, "trades": trades, "equity": pd.DataFrame(equity_rows), "metrics": metrics}
 
 
 def backtest_metrics(trades: pd.DataFrame, starting_capital: float, equity_rows: list[dict[str, object]] | None = None) -> dict[str, float]:
@@ -4234,21 +4179,8 @@ def render_backtesting_engine_lab() -> None:
         trades = result["trades"]
         equity = result["equity"]
         metrics = result["metrics"]
-        debug = result.get("debug", {})
-        if not result.get("success", False):
-            st.error(str(result.get("message", "No historical market data found for this symbol and date range.")))
-            with st.expander("Backtest Debug Panel", expanded=True):
-                debug_rows = [
-                    {"Field": "Ticker", "Value": debug.get("ticker", ticker)},
-                    {"Field": "Start Date", "Value": debug.get("start_date", str(start_date))},
-                    {"Field": "End Date", "Value": debug.get("end_date", str(end_date))},
-                    {"Field": "Rows Returned", "Value": debug.get("rows_returned", 0)},
-                    {"Field": "Rows After Indicators", "Value": debug.get("rows_after_indicators", 0)},
-                    {"Field": "Source Used", "Value": debug.get("source_used", "yfinance")},
-                ]
-                if debug.get("error"):
-                    debug_rows.append({"Field": "Error", "Value": debug.get("error")})
-                st.dataframe(pd.DataFrame(debug_rows), use_container_width=True, hide_index=True)
+        if result["history"].empty:
+            st.warning("Historical data was not available. Check the ticker, date range, yfinance installation, or network access.")
             return
 
         run_id = pd.Timestamp.now().strftime("%Y%m%d%H%M%S")

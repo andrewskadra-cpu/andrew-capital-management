@@ -1,0 +1,18 @@
+Lesson ID,Category,Lesson Title,Description,Difficulty,Estimated Time
+BEG-MARKET_STRUCTURE,BEGINNER,Market Structure,"Understand trends, ranges, pivots, and auction behavior.",Beginner,45 min
+BEG-CANDLESTICKS,BEGINNER,Candlesticks,Read individual candles and candle combinations.,Beginner,40 min
+BEG-SUPPORT_RESISTANCE,BEGINNER,Support & Resistance,Map important price levels and reaction zones.,Beginner,50 min
+BEG-TREND_ANALYSIS,BEGINNER,Trend Analysis,"Identify trend direction, pullbacks, and reversals.",Beginner,45 min
+BEG-RISK_MANAGEMENT,BEGINNER,Risk Management,"Define position sizing, risk limits, and loss controls.",Beginner,60 min
+BEG-TRADING_PSYCHOLOGY,BEGINNER,Trading Psychology,"Build discipline, patience, and rule-based execution.",Beginner,60 min
+INT-BREAKOUT_TRADING,INTERMEDIATE,Breakout Trading,"Build breakout criteria, confirmation, and failure rules.",Intermediate,60 min
+INT-PULLBACK_TRADING,INTERMEDIATE,Pullback Trading,Enter established trends after controlled retracements.,Intermediate,60 min
+INT-VOLUME_ANALYSIS,INTERMEDIATE,Volume Analysis,Use volume to validate participation and conviction.,Intermediate,50 min
+INT-MOMENTUM_TRADING,INTERMEDIATE,Momentum Trading,"Study acceleration, continuation, and exhaustion.",Intermediate,55 min
+INT-RELATIVE_STRENGTH,INTERMEDIATE,Relative Strength,Compare names against indexes and sectors.,Intermediate,45 min
+ADV-OPTIONS_BASICS,ADVANCED,Options Basics,"Understand calls, puts, Greeks, and expiration risk.",Advanced,75 min
+ADV-COVERED_CALLS,ADVANCED,Covered Calls,Use covered calls for income and position management.,Advanced,60 min
+ADV-CASH_SECURED_PUTS,ADVANCED,Cash Secured Puts,Sell puts with defined capital and assignment plans.,Advanced,60 min
+ADV-CREDIT_SPREADS,ADVANCED,Credit Spreads,Structure defined-risk option income trades.,Advanced,75 min
+ADV-MACRO_ANALYSIS,ADVANCED,Macro Analysis,"Connect economic data, rates, liquidity, and risk assets.",Advanced,75 min
+ADV-SECTOR_ROTATION,ADVANCED,Sector Rotation,Track capital flows and leadership shifts by sector.,Advanced,60 min

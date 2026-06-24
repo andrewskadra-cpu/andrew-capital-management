@@ -16,6 +16,7 @@ ACMOS now uses a package-oriented layout so the application can expand beyond
 - `storage/` contains CSV persistence facades and future database adapters.
 - `reports/` contains executive report generation and export utilities.
 - `utils/` contains shared configuration, formatting, runtime compatibility, and low-level helpers.
+- `pages/trading_academy.py` exposes the Trading Academy operating system for curriculum, economic calendar, journaling, playbooks, backtesting, analytics, resources, XP, and badges.
 
 ## Compatibility Runtime
 
